@@ -35,7 +35,10 @@ if (Test-Path -LiteralPath $f) {
 }
 ''')
     : _sh(r'''
-f="${XDG_RUNTIME_DIR:-$HOME/.cache}/crossshell/host.json"
+rt="${XDG_RUNTIME_DIR:-$HOME/.cache}"
+f="$rt/crossshell/host.json"
+# The snap's agent lives in the snap's private runtime dir.
+[ -f "$f" ] || f="$rt/snap.crossshell/crossshell/host.json"
 [ -f "$f" ] || exit 0
 pid=$(sed -n 's/.*"pid":\([0-9][0-9]*\).*/\1/p' "$f")
 [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && cat "$f"
@@ -71,8 +74,13 @@ Start-ScheduledTask -TaskName 'CrossShellHost'
     : _sh(r'''
 set -e
 pf="${XDG_STATE_HOME:-$HOME/.local/state}/crossshell/agent-path"
-[ -f "$pf" ] || { echo "CrossShell has never been started on this machine" >&2; exit 3; }
-exe=$(cat "$pf")
+if [ -f "$pf" ]; then
+  exe=$(cat "$pf")
+elif [ -x /snap/bin/crossshell.host ]; then
+  exe=/snap/bin/crossshell.host
+else
+  echo "CrossShell has never been started on this machine" >&2; exit 3
+fi
 [ -x "$exe" ] || { echo "CrossShell agent not found at $exe (moved or uninstalled?)" >&2; exit 4; }
 systemd-run --user --collect --quiet --unit="crossshell-host-$(date +%s)" "$exe"
 ''');

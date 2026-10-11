@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=CrossShell
+GenericName=Linux and Windows, one desk
+Comment=SSH both ways, files, port forwards and remote desktop between your Linux and Windows machines
+Exec=cross_shell
+Icon=crossshell
+Terminal=false
+Categories=Network;RemoteAccess;Utility;
+Keywords=ssh;sftp;remote;desktop;windows;linux;vnc;rdp;teamviewer;
+StartupWMClass=com.dhivalabs.cross_shell

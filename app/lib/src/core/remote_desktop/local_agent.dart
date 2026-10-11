@@ -34,7 +34,10 @@ class LocalAgent {
   /// network, only from this file, read through an authenticated SSH session.
   Future<void> publishPath() async {
     final exe = agentPath;
-    if (exe == null) return;
+    // Snap installs need no published path: peers start the stable
+    // `/snap/bin/crossshell.host` (and the snap couldn't write outside its
+    // own dirs anyway).
+    if (exe == null || LocalSystem.inSnap) return;
     await Directory(LocalSystem.stateDir).create(recursive: true);
     await File(p.join(LocalSystem.stateDir, 'agent-path')).writeAsString(exe);
   }
@@ -123,7 +126,14 @@ class LocalAgent {
             .basename(await Link('/proc/$pid/exe').target())
             .startsWith('crossshell-host');
       } catch (_) {
-        return false;
+        // Strict snaps may not read another process's exe link; the
+        // command line is still readable for our own processes.
+        try {
+          final cmd = await File('/proc/$pid/cmdline').readAsString();
+          return cmd.contains('crossshell-host');
+        } catch (_) {
+          return false;
+        }
       }
     }
     if (Platform.isWindows) {

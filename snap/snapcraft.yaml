@@ -1,0 +1,159 @@
+# Snap Store packaging for CrossShell (strict confinement).
+#
+# What changes under strict confinement, and why strict rather than
+# classic, is in packaging/SNAP.md. In short: everything works except
+# installing openssh-server for you (no pkexec in a snap: the app shows the
+# command), the "Open in system terminal" / "Open in VS Code" launchers
+# (hidden), and GNOME's prompt-free screen sharing (the snap uses the
+# xdg-desktop-portal, which asks once and then remembers).
+name: crossshell
+title: CrossShell
+base: core24
+version: '0.1.0'
+summary: SSH both ways, files and remote desktop between Linux and Windows
+description: |
+  CrossShell links your Linux machine and your Windows machine (or any mix
+  of the two) on the same network, so they work like one desk.
+
+  * SSH both ways, set up for you: pair two machines with a 6-digit code
+    shown on both screens. CrossShell exchanges keys and pins host keys -
+    no passwords, no trust-on-first-use - and afterwards `ssh <name>` works
+    from any terminal, as do VS Code Remote-SSH, rsync, scp and git.
+  * Terminal tabs, a two-pane SFTP file manager with drag and drop, and
+    local/remote port forwards with presets for common dev ports.
+  * Remote desktop: view or control the other screen, in both directions.
+    CrossShell's own engine, tunneled through SSH, so it opens no extra
+    ports and works on Windows Home too.
+
+  Install CrossShell on the other machine as well: the Windows version is on
+  the GitHub releases page.
+
+  One-time setup for this snap:
+
+    sudo snap connect crossshell:ssh-dir
+
+  lets CrossShell manage ~/.ssh (its own ~/.ssh/crossshell/ folder, one
+  Include line in ~/.ssh/config, and paired machines' keys in
+  ~/.ssh/authorized_keys). Other machines can only sign in to this one if
+  it runs an SSH server: `sudo apt install openssh-server`.
+
+  Differences from the GitHub build: the snap can't install the SSH server
+  or open the firewall for you (it shows the commands), it can't launch
+  your terminal or VS Code, and on GNOME the desktop asks once before the
+  screen can be shared (the GitHub build uses GNOME's prompt-free API).
+grade: stable
+confinement: strict
+icon: snap/gui/crossshell.png
+license: MIT
+website: https://github.com/Dhiva-Labs/CrossShell
+source-code: https://github.com/Dhiva-Labs/CrossShell
+issues: https://github.com/Dhiva-Labs/CrossShell/issues
+contact: dhivakar1010@gmail.com
+
+platforms:
+  amd64:
+
+plugs:
+  # ~/.ssh: the client key, the managed config and known_hosts under
+  # ~/.ssh/crossshell/, the Include line in ~/.ssh/config, and peer keys in
+  # ~/.ssh/authorized_keys. The stock ssh-keys interface is read-only.
+  ssh-dir:
+    interface: personal-files
+    write:
+      - $HOME/.ssh
+
+apps:
+  crossshell:
+    command: cross_shell
+    extensions:
+      - gnome
+    desktop: usr/share/applications/crossshell.desktop
+    environment: &pw-env
+      # The screen-share agent reads frames over PipeWire with the snap's
+      # own client library and SPA plugins.
+      SPA_PLUGIN_DIR: $SNAP/usr/lib/x86_64-linux-gnu/spa-0.2
+      PIPEWIRE_MODULE_DIR: $SNAP/usr/lib/x86_64-linux-gnu/pipewire-0.3
+    plugs:
+      - home
+      - removable-media
+      - network
+      - network-bind
+      - ssh-dir
+      - desktop
+      - desktop-legacy
+      - wayland
+      - x11
+      - unity7
+      - opengl
+      - gsettings
+
+  # The screen-share agent. Paired machines start it remotely with
+  # `systemd-run --user /snap/bin/crossshell.host` when the app isn't open.
+  host:
+    command: crossshell-host
+    extensions:
+      - gnome
+    environment: *pw-env
+    plugs:
+      - desktop
+      - wayland
+      - x11
+      - network
+      - network-bind
+
+parts:
+  app:
+    plugin: flutter
+    source: .
+    source-type: git
+    source-subdir: app
+    flutter-target: lib/main.dart
+    override-pull: |
+      craftctl default
+      rm -rf app/build app/.dart_tool app/.flutter app/.pub-cache \
+        app/linux/flutter/ephemeral
+    build-packages:
+      - clang
+      - cmake
+      - ninja-build
+      - pkg-config
+      - libgtk-3-dev
+      - curl
+      - unzip
+      - xz-utils
+      - git
+
+  engine:
+    plugin: nil
+    source: .
+    source-type: git
+    build-packages:
+      - curl
+      - gcc
+      - clang
+      - libclang-dev
+      - pkg-config
+      - libpipewire-0.3-dev
+    override-build: |
+      export RUSTUP_HOME="$CRAFT_PART_BUILD/.rustup" CARGO_HOME="$CRAFT_PART_BUILD/.cargo"
+      export RUSTUP_TOOLCHAIN=1.97.1
+      curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain "$RUSTUP_TOOLCHAIN" --no-modify-path
+      cd engine
+      "$CARGO_HOME/bin/cargo" build --release --locked -p crossshell-host -p crossshell-view
+      install -Dm755 target/release/crossshell-host "$CRAFT_PART_INSTALL/crossshell-host"
+      install -Dm755 target/release/crossshell-view "$CRAFT_PART_INSTALL/crossshell-view"
+    stage-packages:
+      - libpipewire-0.3-0t64
+      - libspa-0.2-modules
+      # ssh, ssh-keygen and ssh-keyscan: a strict snap can't run the host's.
+      - openssh-client
+
+  desktop-assets:
+    plugin: dump
+    source: snap/gui
+    organize:
+      crossshell.desktop: usr/share/applications/crossshell.desktop
+      crossshell.png: usr/share/icons/hicolor/256x256/apps/crossshell.png
+    stage:
+      - usr/share/applications/crossshell.desktop
+      - usr/share/icons/hicolor/256x256/apps/crossshell.png

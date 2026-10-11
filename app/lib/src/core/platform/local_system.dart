@@ -39,10 +39,21 @@ class LocalSystem {
     }
   }
 
+  /// Running as a strictly confined snap. Inside one, HOME is the snap's
+  /// private dir, host tools (pkexec, terminals, VS Code) can't be launched,
+  /// and GNOME's private remote-desktop API is off limits.
+  static bool get inSnap =>
+      Platform.isLinux && (Platform.environment['SNAP_NAME'] ?? '').isNotEmpty;
+
   static String get homeDir {
     final env = Platform.environment;
-    return (Platform.isWindows ? env['USERPROFILE'] : env['HOME']) ??
-        Directory.current.path;
+    if (Platform.isWindows) {
+      return env['USERPROFILE'] ?? Directory.current.path;
+    }
+    // In a snap, ~/.ssh means the real one (the ssh-dir plug grants it).
+    final real = env['SNAP_REAL_HOME'];
+    if (real != null && real.isNotEmpty) return real;
+    return env['HOME'] ?? Directory.current.path;
   }
 
   static String get sshDir => p.join(homeDir, '.ssh');

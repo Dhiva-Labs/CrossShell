@@ -46,6 +46,19 @@ class AppSettings {
   );
 }
 
+/// A strict snap can't run pkexec, so it shows the commands instead.
+const snapSshServerHelp =
+    'The Snap version of CrossShell can\'t install system packages. In a terminal, run:\n'
+    '  sudo apt install openssh-server        (Debian/Ubuntu)\n'
+    '  sudo dnf install openssh-server && sudo systemctl enable --now sshd   (Fedora)\n'
+    'then press Re-check.';
+
+const snapFirewallHelp =
+    'The Snap version of CrossShell can\'t change the firewall. If ufw is active, run:\n'
+    '  sudo ufw allow from <your LAN, e.g. 192.168.1.0/24> to any port 22 proto tcp\n'
+    '  sudo ufw allow from <your LAN> to any port 47820\n'
+    'Most desktops have no firewall enabled and need nothing.';
+
 /// Result of the local health check.
 class LocalHealth {
   LocalHealth({
@@ -224,6 +237,7 @@ class AppController extends ChangeNotifier {
     bool openFirewall = true,
     bool powerShellDefault = true,
   }) async {
+    if (LocalSystem.inSnap) throw SetupError(snapSshServerHelp);
     if (Platform.isWindows) {
       await runWindowsElevated([
         InstallSshServer(),
@@ -242,6 +256,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> openFirewall() async {
+    if (LocalSystem.inSnap) throw SetupError(snapFirewallHelp);
     if (Platform.isWindows) {
       await runWindowsElevated([OpenFirewall(settings.sshPort)]);
     } else if (Platform.isLinux) {

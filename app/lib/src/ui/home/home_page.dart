@@ -4,6 +4,7 @@ import '../../core/app_controller.dart';
 import '../../core/discovery/discovery.dart';
 import '../../core/pairing/pairing_messages.dart';
 import '../../core/peers/peer.dart';
+import '../../core/platform/local_system.dart';
 import '../../core/remote_desktop/remote_desktop.dart';
 import '../session/session_page.dart';
 import 'pairing_dialog.dart';
@@ -77,9 +78,13 @@ class _HomePageState extends State<HomePage> {
           connect: () => app.connect(peer),
           initialTab: tab,
           onRemoteDesktop: () => _remoteDesktop(peer),
-          onOpenSystemTerminal: () =>
-              _guard(() => app.openSystemTerminal(peer)),
-          onOpenVsCode: (path) => _guard(() => app.openVsCode(peer, path)),
+          // A strict snap can't launch host programs.
+          onOpenSystemTerminal: LocalSystem.inSnap
+              ? null
+              : () => _guard(() => app.openSystemTerminal(peer)),
+          onOpenVsCode: LocalSystem.inSnap
+              ? null
+              : (path) => _guard(() => app.openVsCode(peer, path)),
         ),
       ),
     );
@@ -465,20 +470,22 @@ class _HomePageState extends State<HomePage> {
                       title: Text('Port forwards'),
                     ),
                   ),
-                  const PopupMenuItem(
-                    value: 'sys',
-                    child: ListTile(
-                      leading: Icon(Icons.open_in_new),
-                      title: Text('Open in system terminal'),
+                  if (!LocalSystem.inSnap) ...[
+                    const PopupMenuItem(
+                      value: 'sys',
+                      child: ListTile(
+                        leading: Icon(Icons.open_in_new),
+                        title: Text('Open in system terminal'),
+                      ),
                     ),
-                  ),
-                  const PopupMenuItem(
-                    value: 'code',
-                    child: ListTile(
-                      leading: Icon(Icons.code),
-                      title: Text('Open in VS Code'),
+                    const PopupMenuItem(
+                      value: 'code',
+                      child: ListTile(
+                        leading: Icon(Icons.code),
+                        title: Text('Open in VS Code'),
+                      ),
                     ),
-                  ),
+                  ],
                   const PopupMenuItem(
                     value: 'check',
                     child: ListTile(

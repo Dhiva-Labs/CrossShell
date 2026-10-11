@@ -87,7 +87,7 @@ class _SetupPageState extends State<SetupPage> {
                   Icons.error_outline,
                   color: theme.colorScheme.onErrorContainer,
                 ),
-                title: Text(
+                title: SelectableText(
                   _error!,
                   style: TextStyle(color: theme.colorScheme.onErrorContainer),
                 ),
@@ -143,6 +143,8 @@ class _SetupPageState extends State<SetupPage> {
                         label: Text(
                           Platform.isWindows
                               ? 'Set up OpenSSH Server (admin prompt)'
+                              : LocalSystem.inSnap
+                              ? 'Show how to install openssh-server'
                               : 'Install & enable openssh-server (password prompt)',
                         ),
                       ),
