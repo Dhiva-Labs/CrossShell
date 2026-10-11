@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import '../../../core/platform/local_system.dart' show renameReplacing;
 import 'forward_models.dart';
 
 class ForwardLoadResult {
@@ -89,6 +90,6 @@ class ForwardStore {
       'rules': [for (final r in rules) r.toJson()],
     });
     await tmp.writeAsString(body, flush: true);
-    await tmp.rename(file.path);
+    await renameReplacing(tmp, file.path);
   }
 }

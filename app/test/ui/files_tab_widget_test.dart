@@ -201,10 +201,7 @@ void main() {
     await tester.tap(find.text('Keep both'));
     await r.settle();
     expect(r.remote.text('/C:/Users/alex/report.txt'), 'OLD REMOTE');
-    expect(
-      r.remote.text('/C:/Users/alex/report (1).txt'),
-      'quarterly numbers',
-    );
+    expect(r.remote.text('/C:/Users/alex/report (1).txt'), 'quarterly numbers');
   });
 
   testWidgets('Replace overwrites, Skip keeps, Cancel does nothing', (
@@ -337,10 +334,8 @@ void main() {
     (tester) async {
       final session = FakeSession();
       addTearDown(session.dispose);
-      final first = FakeFs(
-        const SftpWindowsPathStyle(),
-        home: '/C:/Users/alex',
-      )..addFile('/C:/Users/alex/before.txt', 'x');
+      final first = FakeFs(const SftpWindowsPathStyle(), home: '/C:/Users/alex')
+        ..addFile('/C:/Users/alex/before.txt', 'x');
       var current = first;
       final local = FakeFs(const PosixPathStyle(), home: '/home/me')
         ..addFile('/home/me/a', 'a');

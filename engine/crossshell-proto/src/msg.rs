@@ -403,6 +403,64 @@ impl Message {
     }
 }
 
+/// Incremental message reader for sockets with a read timeout: bytes
+/// accumulate across calls, so a timeout can never split a message. This
+/// lets a reader loop wake up regularly (to notice it should stop) without
+/// relying on `shutdown` to unblock a read, which Windows doesn't do.
+pub struct MessageReader {
+    buf: Vec<u8>,
+    max_payload: u32,
+}
+
+impl MessageReader {
+    pub fn new(max_payload: u32) -> Self {
+        MessageReader { buf: Vec::new(), max_payload }
+    }
+
+    /// One read from `r`. `Ok(None)` = no complete message yet (including a
+    /// read timeout); EOF is an `UnexpectedEof` I/O error.
+    pub fn read<R: Read>(&mut self, r: &mut R) -> Result<Option<Message>> {
+        if let Some(m) = self.take()? {
+            return Ok(Some(m));
+        }
+        let mut chunk = [0u8; 16 * 1024];
+        match r.read(&mut chunk) {
+            Ok(0) => Err(Error::Io(std::io::ErrorKind::UnexpectedEof.into())),
+            Ok(n) => {
+                self.buf.extend_from_slice(&chunk[..n]);
+                self.take()
+            }
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut | std::io::ErrorKind::Interrupted
+                ) =>
+            {
+                Ok(None)
+            }
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    fn take(&mut self) -> Result<Option<Message>> {
+        if self.buf.len() < 5 {
+            return Ok(None);
+        }
+        let kind = self.buf[0];
+        let len = u32::from_le_bytes([self.buf[1], self.buf[2], self.buf[3], self.buf[4]]);
+        if len > self.max_payload.min(MAX_PAYLOAD) {
+            return proto_err(format!("payload of {len} bytes for type {kind:#04x} exceeds limit"));
+        }
+        let end = 5 + len as usize;
+        if self.buf.len() < end {
+            return Ok(None);
+        }
+        let m = Message::decode(kind, &self.buf[5..end]);
+        self.buf.drain(..end);
+        m.map(Some)
+    }
+}
+
 struct In<'a> {
     b: &'a [u8],
     p: usize,
@@ -552,6 +610,53 @@ mod tests {
         p.extend_from_slice(&1u32.to_le_bytes());
         p.extend_from_slice(&u16::MAX.to_le_bytes());
         assert!(Message::decode(kind::FRAME, &p).is_err());
+    }
+
+    #[test]
+    fn message_reader_survives_timeouts_mid_message() {
+        // A reader that returns one byte at a time and times out in between.
+        struct Trickle {
+            data: Vec<u8>,
+            pos: usize,
+            tick: bool,
+        }
+        impl Read for Trickle {
+            fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+                self.tick = !self.tick;
+                if self.tick {
+                    return Err(std::io::ErrorKind::WouldBlock.into());
+                }
+                if self.pos == self.data.len() {
+                    return Ok(0);
+                }
+                out[0] = self.data[self.pos];
+                self.pos += 1;
+                Ok(1)
+            }
+        }
+        let a = Message::Key { code: 30, down: true };
+        let b = Message::ClipboardText("hi".into());
+        let mut data = a.to_bytes();
+        data.extend(b.to_bytes());
+        let mut src = Trickle { data, pos: 0, tick: false };
+        let mut rd = MessageReader::new(MAX_PAYLOAD);
+        let mut got = Vec::new();
+        loop {
+            match rd.read(&mut src) {
+                Ok(Some(m)) => got.push(m),
+                Ok(None) => {}
+                Err(Error::Io(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
+                Err(e) => panic!("{e}"),
+            }
+        }
+        assert_eq!(got, vec![a, b]);
+    }
+
+    #[test]
+    fn message_reader_enforces_the_limit() {
+        let bytes = Message::ClipboardText("x".repeat(100)).to_bytes();
+        let mut rd = MessageReader::new(10);
+        assert!(rd.read(&mut &bytes[..]).is_err());
     }
 
     #[test]

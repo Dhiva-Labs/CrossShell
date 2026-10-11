@@ -256,10 +256,7 @@ void main() {
 
   test('a stale listing never overwrites a newer navigation', () async {
     final fs = windowsFs();
-    final pane = FilePaneController(
-      backend: fs,
-      initialPath: '/C:/Users/alex',
-    );
+    final pane = FilePaneController(backend: fs, initialPath: '/C:/Users/alex');
     await pane.init();
     final slow = pane.navigate('/C:/Users');
     final fast = pane.navigate('/D:/data');

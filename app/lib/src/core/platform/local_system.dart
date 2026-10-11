@@ -144,7 +144,24 @@ Future<void> writePrivateFile(String path, String contents) async {
   final tmp = File('$path.tmp');
   await tmp.writeAsString(contents, flush: true);
   if (!Platform.isWindows) await Process.run('chmod', ['600', tmp.path]);
-  await tmp.rename(path);
+  await renameReplacing(tmp, path);
+}
+
+/// `rename` that replaces [to]. On Windows, antivirus and indexers briefly
+/// open freshly written files, and a rename then fails with a sharing
+/// violation; retry a few times before giving up.
+Future<File> renameReplacing(File from, String to) async {
+  for (var attempt = 1; ; attempt++) {
+    try {
+      return await from.rename(to);
+    } on FileSystemException catch (e) {
+      final code = e.osError?.errorCode;
+      final transient =
+          Platform.isWindows && (code == 32 || code == 5 || code == 33);
+      if (!transient || attempt >= 10) rethrow;
+      await Future<void>.delayed(Duration(milliseconds: 25 * attempt));
+    }
+  }
 }
 
 /// Create a directory private to this user on Unix.

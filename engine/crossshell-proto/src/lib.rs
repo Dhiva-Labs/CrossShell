@@ -9,7 +9,7 @@ pub mod keymap;
 pub mod msg;
 
 pub use codec::{Decoder, Encoder, FrameRef, Quality};
-pub use msg::{DisplayInfo, Encoding, Message, Rect};
+pub use msg::{DisplayInfo, Encoding, Message, MessageReader, Rect};
 
 /// Protocol magic sent at the start of `Hello`.
 pub const MAGIC: [u8; 4] = *b"CSRD";

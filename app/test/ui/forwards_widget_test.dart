@@ -24,7 +24,12 @@ class _Rig {
     addTearDown(() async {
       manager.dispose();
       this.session.dispose();
-      dir.deleteSync(recursive: true);
+      // Windows: antivirus may still hold a just-written file open.
+      try {
+        dir.deleteSync(recursive: true);
+      } on FileSystemException {
+        if (!Platform.isWindows) rethrow;
+      }
     });
   }
 
@@ -256,7 +261,8 @@ void main() {
     tester
         .widget<FilledButton>(find.widgetWithText(FilledButton, 'Delete'))
         .onPressed!();
-    await r.drain();
+    // Generous: on Windows the atomic save may retry a locked rename.
+    await r.drain(40);
     expect(r.manager.items, isEmpty);
     final stored = await tester.runAsync(
       () => ForwardStore(r.dir).load('peer-1'),

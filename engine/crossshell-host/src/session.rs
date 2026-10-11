@@ -20,7 +20,7 @@ use anyhow::{anyhow, bail, Context};
 use crossshell_platform::{Backend, Capture, Capturer, DisplayInfo, Injector};
 use crossshell_proto::msg::level;
 use crossshell_proto::{
-    token_eq, Encoder, FrameRef, Message, Quality, MAX_INFLIGHT_FRAMES, MAX_PREAUTH_PAYLOAD, TOKEN_LEN, VERSION,
+    token_eq, Encoder, FrameRef, Message, MessageReader, Quality, MAX_INFLIGHT_FRAMES, MAX_PREAUTH_PAYLOAD, TOKEN_LEN, VERSION,
 };
 
 use crate::clipboard::ClipboardSync;
@@ -31,6 +31,8 @@ use crate::BackendKind;
 pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 /// A session with no viewer traffic for this long is dead (viewers ping every 2 s).
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(15);
+/// How often the reader wakes to check whether the session should end.
+const READER_TICK: Duration = Duration::from_millis(250);
 /// Largest viewer→host message after the handshake (clipboard ≤ 1 MiB).
 const MAX_VIEWER_PAYLOAD: u32 = 2 << 20;
 /// How long a frame waits for more changes before refinement kicks in.
@@ -264,23 +266,32 @@ pub fn serve_connection(mut stream: TcpStream, opts: &SessionOptions, slot: &Ses
         })
     });
 
-    // --- Reader loop.
-    stream.set_read_timeout(Some(IDLE_TIMEOUT))?;
+    // --- Reader loop. Short read timeouts let it notice `stop` (another
+    // viewer took over, capture died) promptly on every OS.
+    stream.set_read_timeout(Some(READER_TICK))?;
+    let mut reader = MessageReader::new(MAX_VIEWER_PAYLOAD);
+    let mut last_rx = Instant::now();
     let mut input = InputState::new(&current);
     let result = (|| -> anyhow::Result<()> {
         while !stop.load(Ordering::SeqCst) {
-            let m = match Message::read_from(&mut stream, MAX_VIEWER_PAYLOAD) {
-                Ok(m) => m,
+            let m = match reader.read(&mut stream) {
+                Ok(Some(m)) => m,
+                Ok(None) => {
+                    if last_rx.elapsed() > IDLE_TIMEOUT {
+                        bail!("viewer idle for {IDLE_TIMEOUT:?}");
+                    }
+                    continue;
+                }
                 Err(crossshell_proto::Error::Io(e))
-                    if matches!(e.kind(), std::io::ErrorKind::UnexpectedEof | std::io::ErrorKind::ConnectionReset) =>
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::UnexpectedEof
+                            | std::io::ErrorKind::ConnectionReset
+                            | std::io::ErrorKind::ConnectionAborted
+                    ) =>
                 {
                     log::info!("viewer disconnected");
                     return Ok(());
-                }
-                Err(crossshell_proto::Error::Io(e))
-                    if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) =>
-                {
-                    bail!("viewer idle for {IDLE_TIMEOUT:?}");
                 }
                 Err(e) if stop.load(Ordering::SeqCst) => {
                     log::debug!("reader ending after stop: {e}");
@@ -288,6 +299,7 @@ pub fn serve_connection(mut stream: TcpStream, opts: &SessionOptions, slot: &Ses
                 }
                 Err(e) => return Err(e.into()),
             };
+            last_rx = Instant::now();
             match m {
                 Message::FrameAck { seq } => flow.lock().unwrap().ack(seq),
                 Message::Ping(n) => {
