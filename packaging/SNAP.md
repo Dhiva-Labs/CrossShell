@@ -2,6 +2,11 @@
 
 Snap name: `crossshell`. Packaging is in `snap/snapcraft.yaml`, and the confinement is **strict**.
 
+## Current state
+
+- **2026-10-12:** revision 1 (0.1.1) was uploaded with `--release=stable`. It is in **manual review** because of the `ssh-dir` personal-files plug, so post the store request below.
+- **After approval:** run `snapcraft release crossshell 1 stable` if the store didn't release it automatically. A revision in review blocks later releases, so don't upload another revision expecting it to go out first.
+
 ## What works under strict confinement
 
 | What the app does | How | Strictly confined? |
