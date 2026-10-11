@@ -430,6 +430,14 @@ class _TerminalPaneState extends State<TerminalPane> {
                         ),
                         padding: const EdgeInsets.fromLTRB(8, 6, 4, 6),
                         readOnly: !live,
+                        // xterm's text-input path resets the platform editing
+                        // state after every character, asynchronously; typing
+                        // faster than the reset lands inserts the previous
+                        // character twice (seen at 50 ms per key on Linux).
+                        // Desktop keyboards deliver characters on key events,
+                        // so take input from those alone. Cost: IME and
+                        // dead-key composition don't reach the terminal.
+                        hardwareKeyboardOnly: true,
                         // Replaces xterm's defaults, which bind plain Ctrl+V
                         // and Ctrl+A; the shell needs both.
                         shortcuts: const {},

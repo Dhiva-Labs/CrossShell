@@ -92,6 +92,9 @@ ssh winbox
   prompt. On other Wayland desktops the xdg portal shows a consent dialog
   once, and a restore token avoids it afterwards. On X11 it uses XShm +
   XTest.
+- **Terminal input:** the built-in terminal takes keys directly from the
+  keyboard, so input methods (IME) and dead-key compose sequences don't
+  reach it. Use *Open in system terminal* for those.
 - **LAN only:** across the internet, put both machines on a VPN (Tailscale,
   WireGuard) and use *Pair by address*.
 
