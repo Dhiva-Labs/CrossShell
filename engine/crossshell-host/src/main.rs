@@ -7,12 +7,11 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 use std::net::{Ipv4Addr, TcpListener};
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use anyhow::Context;
 use crossshell_host::runtime::{self, HostInfo};
-use crossshell_host::session::{self, SessionOptions};
+use crossshell_host::session::{self, SessionOptions, SessionSlot};
 use crossshell_host::{logger, platform_init, BackendKind};
 use crossshell_proto::{to_hex, DEFAULT_HOST_PORT};
 
@@ -108,7 +107,7 @@ fn run() -> anyhow::Result<()> {
         runtime_dir: Some(dir.clone()),
         clipboard: args.clipboard,
     });
-    let busy = Arc::new(AtomicBool::new(false));
+    let slot = Arc::new(SessionSlot::default());
     for conn in listener.incoming() {
         let stream = match conn {
             Ok(s) => s,
@@ -118,9 +117,9 @@ fn run() -> anyhow::Result<()> {
             }
         };
         let opts = opts.clone();
-        let busy = busy.clone();
+        let slot = slot.clone();
         std::thread::spawn(move || {
-            if let Err(e) = session::serve_connection(stream, &opts, &busy) {
+            if let Err(e) = session::serve_connection(stream, &opts, &slot) {
                 log::warn!("session ended with error: {e:#}");
             }
         });

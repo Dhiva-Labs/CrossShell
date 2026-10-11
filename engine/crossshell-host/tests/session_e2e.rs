@@ -2,21 +2,19 @@
 //! using the synthetic backend.
 
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crossshell_host::session::{serve_connection, SessionOptions};
+use crossshell_host::session::{serve_connection, SessionOptions, SessionSlot};
 use crossshell_host::BackendKind;
 use crossshell_proto::{Decoder, Message, MAX_PAYLOAD, VERSION};
 
 const TOKEN: [u8; 32] = [0x5a; 32];
 
-fn spawn_host() -> (u16, Arc<AtomicBool>) {
+fn spawn_host() -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
-    let busy = Arc::new(AtomicBool::new(false));
-    let b = busy.clone();
+    let b = Arc::new(SessionSlot::default());
     std::thread::spawn(move || {
         let opts = Arc::new(SessionOptions { token: TOKEN, backend: BackendKind::Synthetic, runtime_dir: None, clipboard: false });
         for conn in listener.incoming() {
@@ -27,7 +25,7 @@ fn spawn_host() -> (u16, Arc<AtomicBool>) {
             });
         }
     });
-    (port, busy)
+    port
 }
 
 fn connect(port: u16, token: [u8; 32]) -> (TcpStream, Message) {
@@ -40,23 +38,19 @@ fn connect(port: u16, token: [u8; 32]) -> (TcpStream, Message) {
 
 #[test]
 fn bad_token_is_rejected() {
-    let (port, _) = spawn_host();
+    let port = spawn_host();
     let (_s, reply) = connect(port, [0; 32]);
     assert_eq!(reply, Message::Reject { reason: "bad token".into() });
 }
 
 #[test]
 fn full_session_streams_frames_and_takes_input() {
-    let (port, _) = spawn_host();
+    let port = spawn_host();
     let (mut s, welcome) = connect(port, TOKEN);
     let Message::Welcome { displays, .. } = welcome else { panic!("expected welcome, got {welcome:?}") };
     assert_eq!(displays.len(), 1);
     let d = &displays[0];
     Message::Start { display: d.index, quality: 1, max_fps: 30, view_only: false }.write_to(&mut s).unwrap();
-
-    // A second viewer is turned away while this one is connected.
-    let (_s2, busy) = connect(port, TOKEN);
-    assert!(matches!(busy, Message::Reject { ref reason } if reason.starts_with("busy")), "{busy:?}");
 
     let mut dec = Decoder::new();
     let mut frames = 0;
@@ -95,7 +89,7 @@ fn full_session_streams_frames_and_takes_input() {
 
 #[test]
 fn flow_control_caps_unacked_frames() {
-    let (port, _) = spawn_host();
+    let port = spawn_host();
     let (mut s, _) = connect(port, TOKEN);
     Message::Start { display: 0, quality: 0, max_fps: 60, view_only: true }.write_to(&mut s).unwrap();
     // Never ack: the host must stop after MAX_INFLIGHT_FRAMES frames.
@@ -109,4 +103,27 @@ fn flow_control_caps_unacked_frames() {
         }
     }
     assert_eq!(frames, crossshell_proto::MAX_INFLIGHT_FRAMES);
+}
+
+#[test]
+fn a_new_viewer_takes_over_the_session() {
+    let port = spawn_host();
+    let (mut first, _) = connect(port, TOKEN);
+    Message::Start { display: 0, quality: 1, max_fps: 30, view_only: true }.write_to(&mut first).unwrap();
+    assert!(matches!(Message::read_from(&mut first, MAX_PAYLOAD), Ok(_)));
+
+    // Same person reconnecting from a new window: they get the session.
+    let (_second, reply) = connect(port, TOKEN);
+    assert!(matches!(reply, Message::Welcome { .. }), "{reply:?}");
+
+    // The first connection is closed (after any frames already queued).
+    first.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let mut closed = false;
+    for _ in 0..1000 {
+        if Message::read_from(&mut first, MAX_PAYLOAD).is_err() {
+            closed = true;
+            break;
+        }
+    }
+    assert!(closed, "first viewer was not disconnected");
 }

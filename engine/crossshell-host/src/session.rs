@@ -11,9 +11,9 @@
 use std::collections::HashSet;
 use std::net::{Shutdown, TcpStream};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, SyncSender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, bail, Context};
@@ -46,12 +46,56 @@ pub struct SessionOptions {
     pub clipboard: bool,
 }
 
-/// Clears the busy flag when the session ends, however it ends.
-struct BusyGuard<'a>(&'a AtomicBool);
+/// The one active session. A newly authenticated viewer takes over from the
+/// current one (the usual case is the same person reconnecting, or a
+/// session whose viewer vanished and hasn't timed out yet).
+#[derive(Default)]
+pub struct SessionSlot {
+    active: Mutex<Option<Active>>,
+    freed: Condvar,
+    next_id: AtomicU64,
+}
 
-impl Drop for BusyGuard<'_> {
+struct Active {
+    id: u64,
+    stop: Arc<AtomicBool>,
+    stream: TcpStream,
+}
+
+/// How long a new viewer waits for the previous session to wind down.
+const TAKEOVER_WAIT: Duration = Duration::from_secs(3);
+
+impl SessionSlot {
+    fn claim(&self, stream: &TcpStream, stop: &Arc<AtomicBool>) -> Option<SlotGuard<'_>> {
+        let mut g = self.active.lock().unwrap();
+        if let Some(old) = g.as_ref() {
+            log::info!("new viewer takes over the current session");
+            old.stop.store(true, Ordering::SeqCst);
+            let _ = old.stream.shutdown(Shutdown::Both);
+            let (ng, timeout) = self.freed.wait_timeout_while(g, TAKEOVER_WAIT, |a| a.is_some()).unwrap();
+            g = ng;
+            if timeout.timed_out() {
+                return None;
+            }
+        }
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        *g = Some(Active { id, stop: stop.clone(), stream: stream.try_clone().ok()? });
+        Some(SlotGuard { slot: self, id })
+    }
+}
+
+struct SlotGuard<'a> {
+    slot: &'a SessionSlot,
+    id: u64,
+}
+
+impl Drop for SlotGuard<'_> {
     fn drop(&mut self) {
-        self.0.store(false, Ordering::SeqCst);
+        let mut g = self.slot.active.lock().unwrap();
+        if g.as_ref().is_some_and(|a| a.id == self.id) {
+            *g = None;
+        }
+        self.slot.freed.notify_all();
     }
 }
 
@@ -99,7 +143,7 @@ impl Flow {
 }
 
 /// Serve one viewer connection to completion.
-pub fn serve_connection(mut stream: TcpStream, opts: &SessionOptions, busy: &AtomicBool) -> anyhow::Result<()> {
+pub fn serve_connection(mut stream: TcpStream, opts: &SessionOptions, slot: &SessionSlot) -> anyhow::Result<()> {
     stream.set_nodelay(true)?;
     stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT))?;
 
@@ -117,11 +161,11 @@ pub fn serve_connection(mut stream: TcpStream, opts: &SessionOptions, busy: &Ato
         reject(&mut stream, &format!("protocol version {version} not supported (host speaks {VERSION})"));
         bail!("version mismatch");
     }
-    if busy.swap(true, Ordering::SeqCst) {
-        reject(&mut stream, "busy: another viewer is connected");
+    let stop = Arc::new(AtomicBool::new(false));
+    let Some(_slot) = slot.claim(&stream, &stop) else {
+        reject(&mut stream, "busy: the previous session is still closing, try again");
         return Ok(());
-    }
-    let _busy = BusyGuard(busy);
+    };
     let viewer = sanitize_name(&viewer_name);
     log::info!("viewer {viewer:?} authenticated");
 
@@ -173,7 +217,6 @@ pub fn serve_connection(mut stream: TcpStream, opts: &SessionOptions, busy: &Ato
     let backend = Arc::new(Mutex::new(backend));
 
     // --- Threads.
-    let stop = Arc::new(AtomicBool::new(false));
     let flow = Arc::new(Mutex::new(Flow::default()));
     let (tx, rx) = mpsc::sync_channel::<Message>(64);
 
@@ -311,8 +354,10 @@ struct CaptureCtx {
     backend: Arc<Mutex<Box<dyn Backend>>>,
 }
 
+/// Minimum gap between frames. A few ms of slack so a 30 fps cap on a 60 Hz
+/// source sends every second frame instead of every third.
 fn frame_interval(max_fps: u8) -> Duration {
-    Duration::from_secs(1) / u32::from(max_fps.clamp(1, 120))
+    (Duration::from_secs(1) / u32::from(max_fps.clamp(1, 120))).saturating_sub(Duration::from_millis(4))
 }
 
 fn capture_loop(ctx: CaptureCtx, capturer: Box<dyn Capturer>, quality: Quality, max_fps: u8) {
