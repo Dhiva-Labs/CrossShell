@@ -8,12 +8,19 @@ import 'package:cross_shell/src/core/ssh/ssh_files.dart';
 import 'package:cross_shell/src/core/ssh/sshd.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-const ed = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKKkY2WKzNp7LwHoUGCJxBB8MQrtp5MT5TMJtJ0xR0AU';
+const ed =
+    'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKKkY2WKzNp7LwHoUGCJxBB8MQrtp5MT5TMJtJ0xR0AU';
 const id1 = 'aaaaaaaa-1111-4111-8111-111111111111';
 const id2 = 'bbbbbbbb-2222-4222-8222-222222222222';
 
 PeerSshEntry entry(String id, String alias, {String user = 'dhiva'}) =>
-    PeerSshEntry(peerId: id, alias: alias, host: '192.168.0.129', port: 22, user: user);
+    PeerSshEntry(
+      peerId: id,
+      alias: alias,
+      host: '192.168.0.129',
+      port: 22,
+      user: user,
+    );
 
 void main() {
   group('ssh config', () {
@@ -96,10 +103,12 @@ void main() {
     });
 
     test('keyscan output parses, strongest first', () {
-      final keys = parseKeyscan('# 127.0.0.1:22 SSH-2.0-OpenSSH_9.5\n'
-          '127.0.0.1 ssh-rsa AAAAB3NzaC1yc2E=\n'
-          '127.0.0.1 $ed\n'
-          '[127.0.0.1]:2222 $ed\n');
+      final keys = parseKeyscan(
+        '# 127.0.0.1:22 SSH-2.0-OpenSSH_9.5\n'
+        '127.0.0.1 ssh-rsa AAAAB3NzaC1yc2E=\n'
+        '127.0.0.1 $ed\n'
+        '[127.0.0.1]:2222 $ed\n',
+      );
       expect(keys.map((k) => k.type), ['ssh-ed25519', 'ssh-rsa']);
     });
   });
@@ -121,10 +130,19 @@ void main() {
         AuthorizeAdminKey(id1, PublicKey.parse(ed)),
         RevokeAdminKey(id2),
       ], r"C:\Users\o'brien\AppData\Local\Temp\r.json");
-      expect(s, contains("'C:\\Users\\o''brien\\AppData\\Local\\Temp\\r.json'"));
+      expect(
+        s,
+        contains("'C:\\Users\\o''brien\\AppData\\Local\\Temp\\r.json'"),
+      );
       expect(s, contains('crossshell:$id1'));
-      expect(() => buildWindowsScript([RevokeAdminKey('x; rm')], 'r'), throwsA(isA<SetupError>()));
-      expect(() => buildWindowsScript([OpenFirewall(0)], 'r'), throwsA(isA<SetupError>()));
+      expect(
+        () => buildWindowsScript([RevokeAdminKey('x; rm')], 'r'),
+        throwsA(isA<SetupError>()),
+      );
+      expect(
+        () => buildWindowsScript([OpenFirewall(0)], 'r'),
+        throwsA(isA<SetupError>()),
+      );
     });
 
     test('encoded command is base64 utf-16le', () {
@@ -137,7 +155,12 @@ void main() {
   });
 
   test('host info parsing is strict', () {
-    expect(HostInfo.tryParse('{"v":1,"port":47821,"token":"${'ab' * 32}","pid":1,"ver":"0.1.0"}')?.port, 47821);
+    expect(
+      HostInfo.tryParse(
+        '{"v":1,"port":47821,"token":"${'ab' * 32}","pid":1,"ver":"0.1.0"}',
+      )?.port,
+      47821,
+    );
     expect(HostInfo.tryParse(''), isNull);
     expect(HostInfo.tryParse('{"port":0,"token":"${'ab' * 32}"}'), isNull);
     expect(HostInfo.tryParse('{"port":1,"token":"zz"}'), isNull);

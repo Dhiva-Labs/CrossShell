@@ -153,18 +153,25 @@ List<PublicKey> knownHostsFor(String contents, String peerId) {
 /// Add (or replace) the authorized key for [peerId].
 String upsertAuthorizedKey(String contents, String peerId, PublicKey key) {
   final marker = authorizedKeyMarker(peerId);
-  final lines = contents.split('\n').where((l) => l.isNotEmpty && !_hasMarker(l, marker)).toList();
+  final lines = contents
+      .split('\n')
+      .where((l) => l.isNotEmpty && !_hasMarker(l, marker))
+      .toList();
   lines.add('${key.line} $marker');
   return '${lines.join('\n')}\n';
 }
 
 String removeAuthorizedKey(String contents, String peerId) {
   final marker = authorizedKeyMarker(peerId);
-  final lines = contents.split('\n').where((l) => l.isNotEmpty && !_hasMarker(l, marker)).toList();
+  final lines = contents
+      .split('\n')
+      .where((l) => l.isNotEmpty && !_hasMarker(l, marker))
+      .toList();
   return lines.isEmpty ? '' : '${lines.join('\n')}\n';
 }
 
-bool _hasMarker(String line, String marker) => line.trimRight().endsWith(' $marker');
+bool _hasMarker(String line, String marker) =>
+    line.trimRight().endsWith(' $marker');
 
 // ------------------------------------------------------------------ file IO
 
@@ -201,20 +208,30 @@ class SshFiles {
 
   Future<void> writePeerConfig(PeerSshEntry e) async {
     await ensurePrivateDir(layout.dir);
-    await writePrivateFile(layout.config, upsertPeerBlock(await _read(layout.config), e));
+    await writePrivateFile(
+      layout.config,
+      upsertPeerBlock(await _read(layout.config), e),
+    );
     final user = await _read(layout.userConfig);
     final withInclude = ensureInclude(user);
-    if (withInclude != user) await writePrivateFile(layout.userConfig, withInclude);
+    if (withInclude != user) {
+      await writePrivateFile(layout.userConfig, withInclude);
+    }
   }
 
   Future<void> removePeerConfig(String peerId) async {
     final c = await _read(layout.config);
-    if (c.isNotEmpty) await writePrivateFile(layout.config, removePeerBlock(c, peerId));
+    if (c.isNotEmpty) {
+      await writePrivateFile(layout.config, removePeerBlock(c, peerId));
+    }
   }
 
   Future<void> pinHostKeys(String peerId, List<PublicKey> keys) async {
     await ensurePrivateDir(layout.dir);
-    await writePrivateFile(layout.knownHosts, upsertKnownHosts(await _read(layout.knownHosts), peerId, keys));
+    await writePrivateFile(
+      layout.knownHosts,
+      upsertKnownHosts(await _read(layout.knownHosts), peerId, keys),
+    );
   }
 
   Future<List<PublicKey>> pinnedHostKeys(String peerId) async =>
@@ -231,6 +248,11 @@ class SshFiles {
 
   Future<void> revokeInUserFile(String peerId) async {
     final c = await _read(layout.authorizedKeys);
-    if (c.isNotEmpty) await writePrivateFile(layout.authorizedKeys, removeAuthorizedKey(c, peerId));
+    if (c.isNotEmpty) {
+      await writePrivateFile(
+        layout.authorizedKeys,
+        removeAuthorizedKey(c, peerId),
+      );
+    }
   }
 }

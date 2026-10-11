@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'dev/test_automation.dart';
 import 'src/core/app_controller.dart';
 import 'src/ui/home/home_page.dart';
 import 'src/ui/theme.dart';
@@ -34,6 +35,9 @@ Future<void> main() async {
   );
   await app.init();
   _maybeScreenshot();
+  // Let the home page register its handlers first; test hooks wrap them.
+  await WidgetsBinding.instance.endOfFrame;
+  await installTestHooks(app);
 }
 
 final _shotKey = GlobalKey();

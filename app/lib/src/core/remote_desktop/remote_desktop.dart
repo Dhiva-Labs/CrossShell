@@ -33,12 +33,15 @@ class EnginePaths {
       // Installed: next to the app executable.
       p.join(File(Platform.resolvedExecutable).parent.path, '$name$_ext'),
       // Development override.
-      if (Platform.environment['CROSSSHELL_ENGINE_DIR'] case final d?) p.join(d, '$name$_ext'),
+      if (Platform.environment['CROSSSHELL_ENGINE_DIR'] case final d?)
+        p.join(d, '$name$_ext'),
     ];
     // Development checkout: walk up to the repo and use the cargo output.
     var dir = File(Platform.resolvedExecutable).parent;
     for (var i = 0; i < 10; i++) {
-      candidates.add(p.join(dir.path, 'engine', 'target', 'release', '$name$_ext'));
+      candidates.add(
+        p.join(dir.path, 'engine', 'target', 'release', '$name$_ext'),
+      );
       final parent = dir.parent;
       if (parent.path == dir.path) break;
       dir = parent;
@@ -65,7 +68,11 @@ class HostInfo {
       final m = jsonDecode(t) as Map<String, dynamic>;
       final port = m['port'];
       final token = m['token'];
-      if (port is int && port > 0 && port < 65536 && token is String && RegExp(r'^[0-9a-f]{64}$').hasMatch(token)) {
+      if (port is int &&
+          port > 0 &&
+          port < 65536 &&
+          token is String &&
+          RegExp(r'^[0-9a-f]{64}$').hasMatch(token)) {
         return HostInfo(port, token);
       }
     } catch (_) {}
@@ -76,9 +83,11 @@ class HostInfo {
 /// A viewer event (JSON line from crossshell-view's stdout).
 class ViewerEvent {
   ViewerEvent(this.kind, this.data);
-  final String kind; // connecting, waiting, connected, notice, closed, exited, status
+  final String
+  kind; // connecting, waiting, connected, notice, closed, exited, status
   final Map<String, dynamic> data;
-  String? get message => (data['msg'] ?? data['text'] ?? data['reason']) as String?;
+  String? get message =>
+      (data['msg'] ?? data['text'] ?? data['reason']) as String?;
 }
 
 class RemoteDesktopSession {
@@ -106,16 +115,26 @@ class RemoteDesktopSession {
     void Function(String status)? onStatus,
   }) async {
     final viewExe = EnginePaths.view;
-    if (viewExe == null) throw RemoteDesktopError('crossshell-view is missing from this installation');
+    if (viewExe == null) {
+      throw RemoteDesktopError(
+        'crossshell-view is missing from this installation',
+      );
+    }
 
     onStatus?.call('Checking ${peer.name}…');
     var info = await _fetchInfo(layout, peer);
     if (info == null) {
       onStatus?.call('Starting screen sharing on ${peer.name}…');
       try {
-        await runOnPeer(layout, peer, startAgentCommand(windows: peer.isWindows));
+        await runOnPeer(
+          layout,
+          peer,
+          startAgentCommand(windows: peer.isWindows),
+        );
       } on ToolError catch (e) {
-        throw RemoteDesktopError('Could not start screen sharing on ${peer.name}: ${_clean(e.message)}');
+        throw RemoteDesktopError(
+          'Could not start screen sharing on ${peer.name}: ${_clean(e.message)}',
+        );
       }
       final deadline = DateTime.now().add(const Duration(seconds: 15));
       while (info == null && DateTime.now().isBefore(deadline)) {
@@ -124,11 +143,19 @@ class RemoteDesktopSession {
       }
       if (info == null) {
         if (peer.isWindows) {
-          final code = int.tryParse((await runOnPeer(layout, peer, agentLastResultCommand())
-                  .catchError((Object _) => ''))
-              .trim());
+          final code = int.tryParse(
+            (await runOnPeer(
+              layout,
+              peer,
+              agentLastResultCommand(),
+            ).catchError((Object _) => '')).trim(),
+          );
           final why = code == null ? null : explainTaskResult(code);
-          if (why != null) throw RemoteDesktopError('Screen sharing could not start on ${peer.name}: $why');
+          if (why != null) {
+            throw RemoteDesktopError(
+              'Screen sharing could not start on ${peer.name}: $why',
+            );
+          }
         }
         throw RemoteDesktopError(
           'Screen sharing did not come up on ${peer.name}. Someone has to be signed in to its desktop '
@@ -139,21 +166,30 @@ class RemoteDesktopSession {
 
     onStatus?.call('Opening a secure tunnel…');
     final localPort = await _freePort();
-    final tunnel = await Process.start(LocalSystem.sshTool('ssh'), systemSshArgs(layout, peer, extra: [
-      '-N',
-      '-o',
-      'ExitOnForwardFailure=yes',
-      '-o',
-      'ServerAliveInterval=5',
-      '-L',
-      '127.0.0.1:$localPort:127.0.0.1:${info.port}',
-    ]));
+    final tunnel = await Process.start(
+      LocalSystem.sshTool('ssh'),
+      systemSshArgs(
+        layout,
+        peer,
+        extra: [
+          '-N',
+          '-o',
+          'ExitOnForwardFailure=yes',
+          '-o',
+          'ServerAliveInterval=5',
+          '-L',
+          '127.0.0.1:$localPort:127.0.0.1:${info.port}',
+        ],
+      ),
+    );
     final tunnelErr = StringBuffer();
     tunnel.stderr.transform(utf8.decoder).listen(tunnelErr.write);
     tunnel.stdout.drain<void>();
     if (!await _waitForPort(localPort, tunnel)) {
       tunnel.kill();
-      throw RemoteDesktopError('SSH tunnel to ${peer.name} failed: ${_clean(tunnelErr.toString())}');
+      throw RemoteDesktopError(
+        'SSH tunnel to ${peer.name} failed: ${_clean(tunnelErr.toString())}',
+      );
     }
 
     final viewer = await Process.start(viewExe, [
@@ -168,34 +204,52 @@ class RemoteDesktopSession {
     await viewer.stdin.close();
 
     final events = StreamController<ViewerEvent>.broadcast();
-    viewer.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
-      try {
-        final m = jsonDecode(line) as Map<String, dynamic>;
-        events.add(ViewerEvent(m['ev'] as String? ?? 'unknown', m));
-      } catch (_) {}
-    });
+    viewer.stdout
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .listen((line) {
+          try {
+            final m = jsonDecode(line) as Map<String, dynamic>;
+            events.add(ViewerEvent(m['ev'] as String? ?? 'unknown', m));
+          } catch (_) {}
+        });
     viewer.stderr.drain<void>();
-    unawaited(viewer.exitCode.then((code) {
-      tunnel.kill();
-      events.add(ViewerEvent('exited', {'code': code}));
-      events.close();
-    }));
+    unawaited(
+      viewer.exitCode.then((code) {
+        tunnel.kill();
+        events.add(ViewerEvent('exited', {'code': code}));
+        events.close();
+      }),
+    );
     unawaited(tunnel.exitCode.then((_) => viewer.kill()));
     return RemoteDesktopSession._(peer, tunnel, viewer, events);
   }
 
   static Future<HostInfo?> _fetchInfo(SshLayout layout, Peer peer) async {
     try {
-      return HostInfo.tryParse(await runOnPeer(layout, peer, readHostInfoCommand(windows: peer.isWindows)));
+      return HostInfo.tryParse(
+        await runOnPeer(
+          layout,
+          peer,
+          readHostInfoCommand(windows: peer.isWindows),
+        ),
+      );
     } on ToolError catch (e) {
-      throw RemoteDesktopError('Cannot reach ${peer.name} over SSH: ${_clean(e.message)}');
+      throw RemoteDesktopError(
+        'Cannot reach ${peer.name} over SSH: ${_clean(e.message)}',
+      );
     }
   }
 }
 
 String _clean(String s) => s
     .split('\n')
-    .where((l) => !l.contains('post-quantum') && !l.contains('store now, decrypt later') && !l.contains('openssh.com/pq'))
+    .where(
+      (l) =>
+          !l.contains('post-quantum') &&
+          !l.contains('store now, decrypt later') &&
+          !l.contains('openssh.com/pq'),
+    )
     .join('\n')
     .trim();
 
@@ -212,7 +266,11 @@ Future<bool> _waitForPort(int port, Process tunnel) async {
   final deadline = DateTime.now().add(const Duration(seconds: 15));
   while (DateTime.now().isBefore(deadline) && !exited) {
     try {
-      final s = await Socket.connect(InternetAddress.loopbackIPv4, port, timeout: const Duration(milliseconds: 300));
+      final s = await Socket.connect(
+        InternetAddress.loopbackIPv4,
+        port,
+        timeout: const Duration(milliseconds: 300),
+      );
       s.destroy();
       return true;
     } catch (_) {

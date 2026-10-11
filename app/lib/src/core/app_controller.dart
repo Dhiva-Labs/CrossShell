@@ -35,12 +35,15 @@ class AppSettings {
   /// control this screen.
   bool allowScreenSharing;
 
-  Map<String, dynamic> toJson() => {'sshPort': sshPort, 'allowScreenSharing': allowScreenSharing};
+  Map<String, dynamic> toJson() => {
+    'sshPort': sshPort,
+    'allowScreenSharing': allowScreenSharing,
+  };
 
   factory AppSettings.fromJson(Map<String, dynamic> m) => AppSettings(
-        sshPort: (m['sshPort'] as int?) ?? 22,
-        allowScreenSharing: m['allowScreenSharing'] as bool? ?? true,
-      );
+    sshPort: (m['sshPort'] as int?) ?? 22,
+    allowScreenSharing: m['allowScreenSharing'] as bool? ?? true,
+  );
 }
 
 /// Result of the local health check.
@@ -51,6 +54,7 @@ class LocalHealth {
     required this.discoveryError,
     required this.pairingError,
     required this.agentPath,
+    required this.agentError,
     required this.addresses,
   });
   final String? sshServerBanner;
@@ -58,6 +62,9 @@ class LocalHealth {
   final String? discoveryError;
   final String? pairingError;
   final String? agentPath;
+
+  /// Set when screen sharing is allowed but the agent failed to start.
+  final String? agentError;
   final List<String> addresses;
 
   bool get sshServerRunning => sshServerBanner != null;
@@ -97,7 +104,8 @@ class AppController extends ChangeNotifier {
   bool get ready => _ready;
 
   /// Machines on the LAN that are not paired yet.
-  List<SeenPeer> get unpaired => seen.where((s) => !peers.any((p) => p.id == s.beacon.id)).toList();
+  List<SeenPeer> get unpaired =>
+      seen.where((s) => !peers.any((p) => p.id == s.beacon.id)).toList();
 
   bool isOnline(Peer peer) => seen.any((s) => s.beacon.id == peer.id);
 
@@ -130,25 +138,32 @@ class AppController extends ChangeNotifier {
   }
 
   Beacon _beacon() => Beacon(
-        id: identity.id,
-        name: identity.name,
-        os: LocalSystem.osName,
-        user: LocalSystem.userName,
-        sshPort: settings.sshPort,
-        pairPort: pairingPort,
-        version: appVersion,
-      );
+    id: identity.id,
+    name: identity.name,
+    os: LocalSystem.osName,
+    user: LocalSystem.userName,
+    sshPort: settings.sshPort,
+    pairPort: pairingPort,
+    version: appVersion,
+  );
 
   Future<AppSettings> _loadSettings() async {
     final f = File(p.join(appDir, 'settings.json'));
     try {
-      if (await f.exists()) return AppSettings.fromJson(jsonDecode(await f.readAsString()) as Map<String, dynamic>);
+      if (await f.exists()) {
+        return AppSettings.fromJson(
+          jsonDecode(await f.readAsString()) as Map<String, dynamic>,
+        );
+      }
     } catch (_) {}
     return AppSettings();
   }
 
   Future<void> saveSettings() async {
-    await writePrivateFile(p.join(appDir, 'settings.json'), jsonEncode(settings.toJson()));
+    await writePrivateFile(
+      p.join(appDir, 'settings.json'),
+      jsonEncode(settings.toJson()),
+    );
     discovery.updateSelf(_beacon());
     if (settings.allowScreenSharing) {
       await localAgent.ensureRunning();
@@ -175,8 +190,13 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  PeerSshEntry _entry(Peer p) =>
-      PeerSshEntry(peerId: p.id, alias: p.alias, host: p.lastIp, port: p.sshPort, user: p.sshUser);
+  PeerSshEntry _entry(Peer p) => PeerSshEntry(
+    peerId: p.id,
+    alias: p.alias,
+    host: p.lastIp,
+    port: p.sshPort,
+    user: p.sshUser,
+  );
 
   // ------------------------------------------------------------- health
 
@@ -193,13 +213,17 @@ class AppController extends ChangeNotifier {
       discoveryError: discovery.error,
       pairingError: pairingError,
       agentPath: localAgent.agentPath,
+      agentError: settings.allowScreenSharing ? localAgent.startError : null,
       addresses: await localAddresses(),
     );
     notifyListeners();
   }
 
   /// Install/enable this machine's SSH server (one admin prompt).
-  Future<void> setUpSshServer({bool openFirewall = true, bool powerShellDefault = true}) async {
+  Future<void> setUpSshServer({
+    bool openFirewall = true,
+    bool powerShellDefault = true,
+  }) async {
     if (Platform.isWindows) {
       await runWindowsElevated([
         InstallSshServer(),
@@ -208,7 +232,9 @@ class AppController extends ChangeNotifier {
       ]);
     } else if (Platform.isLinux) {
       await runLinuxPrivileged('install-server');
-      if (openFirewall) await runLinuxPrivileged('firewall', ['${settings.sshPort}']);
+      if (openFirewall) {
+        await runLinuxPrivileged('firewall', ['${settings.sshPort}']);
+      }
     } else {
       throw SetupError('Automatic setup is not supported on this OS');
     }
@@ -227,10 +253,14 @@ class AppController extends ChangeNotifier {
 
   Future<void> _startPairingServer() async {
     try {
-      _pairServer = await ServerSocket.bind(InternetAddress.anyIPv4, pairingPort);
+      _pairServer = await ServerSocket.bind(
+        InternetAddress.anyIPv4,
+        pairingPort,
+      );
       _pairServer!.listen(_onPairingConnection);
     } on SocketException catch (e) {
-      pairingError = 'Cannot listen for pairing on TCP $pairingPort: ${e.osError?.message ?? e.message}';
+      pairingError =
+          'Cannot listen for pairing on TCP $pairingPort: ${e.osError?.message ?? e.message}';
     }
   }
 
@@ -259,12 +289,18 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  PeerIdentity _me() => PeerIdentity(id: identity.id, name: identity.name, os: LocalSystem.osName);
+  PeerIdentity _me() => PeerIdentity(
+    id: identity.id,
+    name: identity.name,
+    os: LocalSystem.osName,
+  );
 
   Future<PairingPayload> _myPayload() async {
     final clientKey = await files.ensureClientKey();
     final banner = await probeSshBanner('127.0.0.1', settings.sshPort);
-    final hostKeys = banner == null ? <PublicKey>[] : await localHostKeys(settings.sshPort);
+    final hostKeys = banner == null
+        ? <PublicKey>[]
+        : await localHostKeys(settings.sshPort);
     return PairingPayload(
       sshUser: LocalSystem.userName,
       sshPort: settings.sshPort,
@@ -296,11 +332,19 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> _applyPeer(PeerIdentity peer, PairingPayload payload, String address) async {
+  Future<void> _applyPeer(
+    PeerIdentity peer,
+    PairingPayload payload,
+    String address,
+  ) async {
     final mine = await probeSshBanner('127.0.0.1', settings.sshPort) != null;
     final existing = peers.where((p) => p.id == peer.id).firstOrNull;
-    final alias = existing?.alias ??
-        makeAlias(payload.name, peers.where((p) => p.id != peer.id).map((p) => p.alias));
+    final alias =
+        existing?.alias ??
+        makeAlias(
+          payload.name,
+          peers.where((p) => p.id != peer.id).map((p) => p.alias),
+        );
 
     // Let them in (only meaningful while we run an SSH server).
     if (mine) {
@@ -325,10 +369,13 @@ class AppController extends ChangeNotifier {
     );
     // Pin them.
     if (record.canConnect) {
-      await files.pinHostKeys(peer.id, [for (final k in payload.hostKeys) PublicKey.parse(k)]);
+      await files.pinHostKeys(peer.id, [
+        for (final k in payload.hostKeys) PublicKey.parse(k),
+      ]);
       await files.writePeerConfig(_entry(record));
     }
-    peers = [...peers.where((p) => p.id != peer.id), record]..sort((a, b) => a.name.compareTo(b.name));
+    peers = [...peers.where((p) => p.id != peer.id), record]
+      ..sort((a, b) => a.name.compareTo(b.name));
     await _store.save(peers);
     notifyListeners();
   }
@@ -337,8 +384,12 @@ class AppController extends ChangeNotifier {
   Future<void> unpair(Peer peer) async {
     if (peer.canConnect) {
       try {
-        await runOnPeer(layout, peer, revokeSelfCommand(windows: peer.isWindows, myId: identity.id),
-            timeout: const Duration(seconds: 15));
+        await runOnPeer(
+          layout,
+          peer,
+          revokeSelfCommand(windows: peer.isWindows, myId: identity.id),
+          timeout: const Duration(seconds: 15),
+        );
       } catch (_) {
         // Offline: our key stays there until they unpair us.
       }
@@ -365,9 +416,16 @@ class AppController extends ChangeNotifier {
   /// Check reachability and key auth through the system ssh.
   Future<String> checkPeer(Peer peer) async {
     final banner = await probeSshBanner(peer.lastIp, peer.sshPort);
-    if (banner == null) return 'No SSH server answering at ${peer.lastIp}:${peer.sshPort}';
+    if (banner == null) {
+      return 'No SSH server answering at ${peer.lastIp}:${peer.sshPort}';
+    }
     try {
-      await runOnPeer(layout, peer, peer.isWindows ? 'cmd /c echo ok' : 'echo ok', timeout: const Duration(seconds: 15));
+      await runOnPeer(
+        layout,
+        peer,
+        peer.isWindows ? 'cmd /c echo ok' : 'echo ok',
+        timeout: const Duration(seconds: 15),
+      );
       return 'OK — $banner';
     } on Exception catch (e) {
       return 'SSH answered ($banner) but login failed: $e';
@@ -380,7 +438,12 @@ class AppController extends ChangeNotifier {
     void Function(String)? onStatus,
   }) async {
     _sessions[peer.id]?.close();
-    final s = await RemoteDesktopSession.start(peer, layout, viewOnly: viewOnly, onStatus: onStatus);
+    final s = await RemoteDesktopSession.start(
+      peer,
+      layout,
+      viewOnly: viewOnly,
+      onStatus: onStatus,
+    );
     _sessions[peer.id] = s;
     unawaited(s.done.then((_) => _sessions.remove(peer.id)));
     return s;
@@ -392,9 +455,18 @@ class AppController extends ChangeNotifier {
     final args = ['-F', layout.config, peer.alias];
     if (Platform.isWindows) {
       try {
-        await Process.start('wt.exe', [ssh, ...args], mode: ProcessStartMode.detached);
+        await Process.start('wt.exe', [
+          ssh,
+          ...args,
+        ], mode: ProcessStartMode.detached);
       } on ProcessException {
-        await Process.start('cmd.exe', ['/c', 'start', 'CrossShell', ssh, ...args], mode: ProcessStartMode.detached);
+        await Process.start('cmd.exe', [
+          '/c',
+          'start',
+          'CrossShell',
+          ssh,
+          ...args,
+        ], mode: ProcessStartMode.detached);
       }
       return;
     }
@@ -409,7 +481,11 @@ class AppController extends ChangeNotifier {
       ['xterm', '-e'],
     ]) {
       try {
-        await Process.start(term.first, [...term.skip(1), ssh, ...args], mode: ProcessStartMode.detached);
+        await Process.start(term.first, [
+          ...term.skip(1),
+          ssh,
+          ...args,
+        ], mode: ProcessStartMode.detached);
         return;
       } on ProcessException {
         continue;
@@ -421,12 +497,22 @@ class AppController extends ChangeNotifier {
   /// Open VS Code Remote-SSH on [peer] at [remotePath].
   Future<void> openVsCode(Peer peer, String remotePath) async {
     // VS Code reads ~/.ssh/config, which includes ours.
-    final path = peer.isWindows && RegExp(r'^/[A-Za-z]:').hasMatch(remotePath) ? remotePath.substring(1) : remotePath;
+    final path = peer.isWindows && RegExp(r'^/[A-Za-z]:').hasMatch(remotePath)
+        ? remotePath.substring(1)
+        : remotePath;
     try {
-      await Process.start(Platform.isWindows ? 'code.cmd' : 'code', ['--remote', 'ssh-remote+${peer.alias}', path],
-          mode: ProcessStartMode.detached, runInShell: Platform.isWindows);
+      await Process.start(
+        Platform.isWindows ? 'code.cmd' : 'code',
+        ['--remote', 'ssh-remote+${peer.alias}', path],
+        mode: ProcessStartMode.detached,
+        runInShell: Platform.isWindows,
+      );
     } on ProcessException {
-      throw ProcessException('code', const [], 'VS Code (the "code" command) was not found');
+      throw ProcessException(
+        'code',
+        const [],
+        'VS Code (the "code" command) was not found',
+      );
     }
   }
 

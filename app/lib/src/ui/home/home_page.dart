@@ -116,9 +116,7 @@ class _HomePageState extends State<HomePage> {
             );
           case 'closed':
             final reason = ev.message;
-            if (reason != null &&
-                reason.isNotEmpty &&
-                reason != 'user') {
+            if (reason != null && reason.isNotEmpty && reason != 'user') {
               _snack('Remote desktop: $reason', error: true);
             }
           case 'exited':
@@ -227,7 +225,9 @@ class _HomePageState extends State<HomePage> {
                   TextButton.icon(
                     onPressed: () async {
                       final addr = await askPairAddress(context);
-                      if (addr != null && addr.isNotEmpty) await _pair(addr, addr);
+                      if (addr != null && addr.isNotEmpty) {
+                        await _pair(addr, addr);
+                      }
                     },
                     icon: const Icon(Icons.add_link),
                     label: const Text('Pair by address'),

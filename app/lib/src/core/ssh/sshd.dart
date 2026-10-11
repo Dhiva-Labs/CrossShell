@@ -57,7 +57,13 @@ List<PublicKey> parseKeyscan(String out) {
     }
   }
   // Strongest first: that's what clients will negotiate anyway.
-  const order = ['ssh-ed25519', 'ecdsa-sha2-nistp256', 'ecdsa-sha2-nistp384', 'ecdsa-sha2-nistp521', 'ssh-rsa'];
+  const order = [
+    'ssh-ed25519',
+    'ecdsa-sha2-nistp256',
+    'ecdsa-sha2-nistp384',
+    'ecdsa-sha2-nistp521',
+    'ssh-rsa',
+  ];
   keys.sort((a, b) => order.indexOf(a.type).compareTo(order.indexOf(b.type)));
   return keys;
 }

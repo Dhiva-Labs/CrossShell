@@ -7,10 +7,12 @@ import '../ssh/setup_scripts.dart' show encodePowerShell, shQuote;
 
 // Progress records and errors would otherwise reach stderr as CLIXML over
 // SSH; report errors as one plain line instead.
-String _ps(String script) => 'powershell -NoProfile -NonInteractive -EncodedCommand '
+String _ps(String script) =>
+    'powershell -NoProfile -NonInteractive -EncodedCommand '
     '${encodePowerShell(_psWrap(script))}';
 
-String _psWrap(String script) => """
+String _psWrap(String script) =>
+    """
 \$ProgressPreference = 'SilentlyContinue'
 try {
 $script
@@ -84,21 +86,25 @@ if ($i) { [Console]::Out.Write($i.LastTaskResult) }
 
 /// Human explanation for a scheduled-task result code, if we know it.
 String? explainTaskResult(int code) => switch (code & 0xffffffff) {
-      // ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION
-      0x800711C7 || 0x000011C7 =>
-        'Windows Smart App Control blocked crossshell-host.exe on that machine because the build is not '
-            'code-signed. Install a signed CrossShell release there.',
-      0x80070002 || 0x00000002 => 'crossshell-host.exe was not found on that machine (moved or uninstalled?).',
-      0x800710E0 => 'Windows refused to start it: nobody is signed in to that machine\'s desktop.',
-      _ => null,
-    };
+  // ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION
+  0x800711C7 || 0x000011C7 =>
+    'Windows Smart App Control blocked crossshell-host.exe on that machine because the build is not '
+        'code-signed. Install a signed CrossShell release there.',
+  0x80070002 || 0x00000002 =>
+    'crossshell-host.exe was not found on that machine (moved or uninstalled?).',
+  0x800710E0 =>
+    'Windows refused to start it: nobody is signed in to that machine\'s desktop.',
+  _ => null,
+};
 
 /// Remove this machine's key (marker `crossshell:<myId>`) from the peer's
 /// authorized keys — used when unpairing so trust ends on both sides.
 /// Windows admins: SSH key logons get a full (elevated) token, so the
 /// ProgramData file is writable from the session.
 String revokeSelfCommand({required bool windows, required String myId}) {
-  if (!RegExp(r'^[A-Za-z0-9-]{8,64}$').hasMatch(myId)) throw ArgumentError('bad id');
+  if (!RegExp(r'^[A-Za-z0-9-]{8,64}$').hasMatch(myId)) {
+    throw ArgumentError('bad id');
+  }
   final marker = 'crossshell:$myId';
   return windows
       ? _ps('''

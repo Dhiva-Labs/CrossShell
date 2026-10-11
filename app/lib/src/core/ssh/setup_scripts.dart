@@ -178,18 +178,26 @@ Future<List<StepResult>> runWindowsElevated(List<WindowsStep> steps) async {
     // The outer (unelevated) PowerShell asks for elevation and waits. It is
     // one line so it can travel as a plain -Command argument; the inner
     // script is base64 and never needs quoting.
-    final outer = "try { \$p = Start-Process -FilePath powershell.exe -Verb RunAs -Wait -PassThru "
+    final outer =
+        "try { \$p = Start-Process -FilePath powershell.exe -Verb RunAs -Wait -PassThru "
         "-WindowStyle Hidden -ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',"
         "'-EncodedCommand','$inner'); exit \$p.ExitCode } "
         "catch { [Console]::Error.WriteLine(\$_.Exception.Message); exit 1223 }";
-    final r = await Process.run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', outer]);
+    final r = await Process.run('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      outer,
+    ]);
     final f = File(resultFile);
     if (!await f.exists()) {
       final err = (r.stderr as String).trim();
       if (r.exitCode == 1223 || err.toLowerCase().contains('cancel')) {
         throw SetupError('Administrator permission was declined');
       }
-      throw SetupError('elevated setup did not run: ${err.isEmpty ? 'exit ${r.exitCode}' : err}');
+      throw SetupError(
+        'elevated setup did not run: ${err.isEmpty ? 'exit ${r.exitCode}' : err}',
+      );
     }
     var text = await f.readAsString();
     if (text.startsWith('﻿')) text = text.substring(1);
@@ -198,7 +206,11 @@ Future<List<StepResult>> runWindowsElevated(List<WindowsStep> steps) async {
     final list = rawSteps is List ? rawSteps : [rawSteps];
     final results = [
       for (final s in list.whereType<Map<String, dynamic>>())
-        StepResult(s['name'] as String? ?? '?', s['ok'] == true, s['error'] as String?),
+        StepResult(
+          s['name'] as String? ?? '?',
+          s['ok'] == true,
+          s['error'] as String?,
+        ),
     ];
     final failed = results.where((s) => !s.ok).toList();
     if (failed.isNotEmpty) {
@@ -263,9 +275,19 @@ esac
 ''';
 
 /// Run a Linux setup action as root via polkit (password dialog).
-Future<void> runLinuxPrivileged(String action, [List<String> args = const []]) async {
+Future<void> runLinuxPrivileged(
+  String action, [
+  List<String> args = const [],
+]) async {
   if (!Platform.isLinux) throw SetupError('not on Linux');
-  final r = await Process.run('pkexec', ['/bin/sh', '-c', linuxSetupScript, 'crossshell-setup', action, ...args]);
+  final r = await Process.run('pkexec', [
+    '/bin/sh',
+    '-c',
+    linuxSetupScript,
+    'crossshell-setup',
+    action,
+    ...args,
+  ]);
   if (r.exitCode == 126 || r.exitCode == 127) {
     throw SetupError('Administrator permission was declined');
   }

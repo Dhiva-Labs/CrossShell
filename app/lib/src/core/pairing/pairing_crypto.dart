@@ -78,15 +78,14 @@ Future<Uint8List> transcriptHash({
   required Uint8List nonceI,
   required String idI,
   required String idR,
-}) =>
-    _hash([
-      utf8.encode(_transcriptLabel),
-      pkI,
-      pkR,
-      nonceI,
-      _lp(utf8.encode(idI)),
-      _lp(utf8.encode(idR)),
-    ]);
+}) => _hash([
+  utf8.encode(_transcriptLabel),
+  pkI,
+  pkR,
+  nonceI,
+  _lp(utf8.encode(idI)),
+  _lp(utf8.encode(idR)),
+]);
 
 /// Six-digit short authentication string from the transcript hash.
 Future<int> sasCode(Uint8List transcript) async {

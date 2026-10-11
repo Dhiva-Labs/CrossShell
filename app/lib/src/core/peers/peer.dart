@@ -45,53 +45,57 @@ class Peer {
   bool get isWindows => os == 'windows';
 
   Peer copyWith({String? lastIp, String? name}) => Peer(
-        id: id,
-        name: name ?? this.name,
-        os: os,
-        alias: alias,
-        sshUser: sshUser,
-        sshPort: sshPort,
-        hostKeys: hostKeys,
-        clientKey: clientKey,
-        lastIp: lastIp ?? this.lastIp,
-        pairedAt: pairedAt,
-      );
+    id: id,
+    name: name ?? this.name,
+    os: os,
+    alias: alias,
+    sshUser: sshUser,
+    sshPort: sshPort,
+    hostKeys: hostKeys,
+    clientKey: clientKey,
+    lastIp: lastIp ?? this.lastIp,
+    pairedAt: pairedAt,
+  );
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'os': os,
-        'alias': alias,
-        'sshUser': sshUser,
-        'sshPort': sshPort,
-        'hostKeys': hostKeys,
-        'clientKey': clientKey,
-        'lastIp': lastIp,
-        'pairedAt': pairedAt.toUtc().toIso8601String(),
-      };
+    'id': id,
+    'name': name,
+    'os': os,
+    'alias': alias,
+    'sshUser': sshUser,
+    'sshPort': sshPort,
+    'hostKeys': hostKeys,
+    'clientKey': clientKey,
+    'lastIp': lastIp,
+    'pairedAt': pairedAt.toUtc().toIso8601String(),
+  };
 
   factory Peer.fromJson(Map<String, dynamic> m) => Peer(
-        id: m['id'] as String,
-        name: m['name'] as String,
-        os: m['os'] as String? ?? 'other',
-        alias: m['alias'] as String,
-        sshUser: m['sshUser'] as String,
-        sshPort: m['sshPort'] as int? ?? 22,
-        hostKeys: (m['hostKeys'] as List? ?? const []).cast<String>(),
-        clientKey: m['clientKey'] as String? ?? '',
-        lastIp: m['lastIp'] as String? ?? '',
-        pairedAt: DateTime.tryParse(m['pairedAt'] as String? ?? '') ?? DateTime.now(),
-      );
+    id: m['id'] as String,
+    name: m['name'] as String,
+    os: m['os'] as String? ?? 'other',
+    alias: m['alias'] as String,
+    sshUser: m['sshUser'] as String,
+    sshPort: m['sshPort'] as int? ?? 22,
+    hostKeys: (m['hostKeys'] as List? ?? const []).cast<String>(),
+    clientKey: m['clientKey'] as String? ?? '',
+    lastIp: m['lastIp'] as String? ?? '',
+    pairedAt:
+        DateTime.tryParse(m['pairedAt'] as String? ?? '') ?? DateTime.now(),
+  );
 }
 
 /// Turn a machine name into a short, ssh-friendly alias unique among [taken].
 String makeAlias(String name, Iterable<String> taken) {
-  var base = name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9._-]+'), '-').replaceAll(RegExp(r'^-+|-+$'), '');
+  var base = name
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9._-]+'), '-')
+      .replaceAll(RegExp(r'^-+|-+$'), '');
   if (base.isEmpty) base = 'peer';
   if (base.length > 32) base = base.substring(0, 32);
   final used = taken.toSet();
   if (!used.contains(base)) return base;
-  for (var i = 2;; i++) {
+  for (var i = 2; ; i++) {
     final c = '$base-$i';
     if (!used.contains(c)) return c;
   }
@@ -113,8 +117,12 @@ class PeerStore {
     }
   }
 
-  Future<void> save(List<Peer> peers) =>
-      writePrivateFile(file.path, const JsonEncoder.withIndent('  ').convert([for (final p in peers) p.toJson()]));
+  Future<void> save(List<Peer> peers) => writePrivateFile(
+    file.path,
+    const JsonEncoder.withIndent(
+      '  ',
+    ).convert([for (final p in peers) p.toJson()]),
+  );
 }
 
 /// This machine's identity: a random id kept forever plus the hostname.
@@ -129,7 +137,9 @@ class DeviceIdentity {
       try {
         final m = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
         final id = m['id'] as String;
-        if (RegExp(r'^[A-Za-z0-9-]{8,64}$').hasMatch(id)) return DeviceIdentity(id, LocalSystem.hostname);
+        if (RegExp(r'^[A-Za-z0-9-]{8,64}$').hasMatch(id)) {
+          return DeviceIdentity(id, LocalSystem.hostname);
+        }
       } catch (_) {}
     }
     final id = _uuidV4();

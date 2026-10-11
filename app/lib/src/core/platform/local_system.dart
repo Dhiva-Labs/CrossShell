@@ -28,7 +28,9 @@ class LocalSystem {
 
   static String get userName {
     final env = Platform.environment;
-    final u = Platform.isWindows ? env['USERNAME'] : (env['USER'] ?? env['LOGNAME']);
+    final u = Platform.isWindows
+        ? env['USERNAME']
+        : (env['USER'] ?? env['LOGNAME']);
     if (u != null && u.isNotEmpty) return u;
     try {
       return (Process.runSync('id', ['-un']).stdout as String).trim();
@@ -39,7 +41,8 @@ class LocalSystem {
 
   static String get homeDir {
     final env = Platform.environment;
-    return (Platform.isWindows ? env['USERPROFILE'] : env['HOME']) ?? Directory.current.path;
+    return (Platform.isWindows ? env['USERPROFILE'] : env['HOME']) ??
+        Directory.current.path;
   }
 
   static String get sshDir => p.join(homeDir, '.ssh');
@@ -71,10 +74,16 @@ class LocalSystem {
   static String get stateDir {
     final env = Platform.environment;
     if (Platform.isWindows) {
-      return p.join(env['LOCALAPPDATA'] ?? p.join(homeDir, 'AppData', 'Local'), 'CrossShell');
+      return p.join(
+        env['LOCALAPPDATA'] ?? p.join(homeDir, 'AppData', 'Local'),
+        'CrossShell',
+      );
     }
     final xdg = env['XDG_STATE_HOME'];
-    return p.join(xdg != null && xdg.isNotEmpty ? xdg : p.join(homeDir, '.local', 'state'), 'crossshell');
+    return p.join(
+      xdg != null && xdg.isNotEmpty ? xdg : p.join(homeDir, '.local', 'state'),
+      'crossshell',
+    );
   }
 
   /// Runtime dir of the local crossshell-host (`host.json`, `status.json`).
@@ -82,7 +91,10 @@ class LocalSystem {
     final env = Platform.environment;
     if (Platform.isWindows) return stateDir;
     final xdg = env['XDG_RUNTIME_DIR'];
-    return p.join(xdg != null && xdg.isNotEmpty ? xdg : p.join(homeDir, '.cache'), 'crossshell');
+    return p.join(
+      xdg != null && xdg.isNotEmpty ? xdg : p.join(homeDir, '.cache'),
+      'crossshell',
+    );
   }
 }
 
@@ -98,13 +110,20 @@ Future<String> runTool(
   await proc.stdin.close();
   final out = proc.stdout.transform(utf8.decoder).join();
   final err = proc.stderr.transform(utf8.decoder).join();
-  final code = await proc.exitCode.timeout(timeout, onTimeout: () {
-    proc.kill();
-    throw ToolError('$exe timed out after ${timeout.inSeconds}s');
-  });
+  final code = await proc.exitCode.timeout(
+    timeout,
+    onTimeout: () {
+      proc.kill();
+      throw ToolError('$exe timed out after ${timeout.inSeconds}s');
+    },
+  );
   final o = await out;
   if (code != 0) {
-    throw ToolError('${p.basename(exe)} failed (exit $code): ${(await err).trim()}', exitCode: code, stdout: o);
+    throw ToolError(
+      '${p.basename(exe)} failed (exit $code): ${(await err).trim()}',
+      exitCode: code,
+      stdout: o,
+    );
   }
   return o;
 }

@@ -169,10 +169,12 @@ class _SetupPageState extends State<SetupPage> {
             badText: h?.pairingError ?? '',
           ),
           _check(
-            ok: h == null ? null : h.agentPath != null,
+            ok: h == null ? null : h.agentPath != null && h.agentError == null,
             title: 'Screen sharing agent',
             okText: h?.agentPath ?? '',
-            badText: 'crossshell-host is missing from this installation',
+            badText:
+                h?.agentError ??
+                'crossshell-host is missing from this installation',
           ),
           const SizedBox(height: 8),
           Wrap(

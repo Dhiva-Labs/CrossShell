@@ -29,7 +29,9 @@ class PeerIdentity {
 
   factory PeerIdentity.fromJson(Map<String, dynamic> m) {
     final id = m['id'];
-    if (id is! String || !_idRe.hasMatch(id)) throw PairingError('peer sent an invalid id');
+    if (id is! String || !_idRe.hasMatch(id)) {
+      throw PairingError('peer sent an invalid id');
+    }
     return PeerIdentity(
       id: id,
       name: sanitizeName(m['name']),
@@ -41,15 +43,17 @@ class PeerIdentity {
 }
 
 String sanitizeName(Object? v) {
-  final s = (v is String ? v : '').replaceAll(RegExp(r'[\x00-\x1f\x7f]'), '').trim();
+  final s = (v is String ? v : '')
+      .replaceAll(RegExp(r'[\x00-\x1f\x7f]'), '')
+      .trim();
   if (s.isEmpty) return 'unknown';
   return s.length > 64 ? s.substring(0, 64) : s;
 }
 
 String sanitizeOs(Object? v) => switch (v) {
-      'linux' || 'windows' || 'macos' => v as String,
-      _ => 'other',
-    };
+  'linux' || 'windows' || 'macos' => v as String,
+  _ => 'other',
+};
 
 /// What each side hands the other once both users confirmed the code.
 class PairingPayload {
@@ -76,24 +80,31 @@ class PairingPayload {
   final String os;
 
   Map<String, dynamic> toJson() => {
-        'sshUser': sshUser,
-        'sshPort': sshPort,
-        'hostKeys': hostKeys,
-        'clientKey': clientKey,
-        'name': name,
-        'os': os,
-      };
+    'sshUser': sshUser,
+    'sshPort': sshPort,
+    'hostKeys': hostKeys,
+    'clientKey': clientKey,
+    'name': name,
+    'os': os,
+  };
 
   /// Strictly validated: everything here ends up in SSH config files.
   factory PairingPayload.fromJson(Map<String, dynamic> m) {
     final user = m['sshUser'];
-    if (user is! String || user.isEmpty || user.length > 104 || RegExp(r'[\x00-\x1f\x7f"]').hasMatch(user)) {
+    if (user is! String ||
+        user.isEmpty ||
+        user.length > 104 ||
+        RegExp(r'[\x00-\x1f\x7f"]').hasMatch(user)) {
       throw PairingError('peer sent an invalid user name');
     }
     final port = m['sshPort'];
-    if (port is! int || port < 1 || port > 65535) throw PairingError('peer sent an invalid SSH port');
+    if (port is! int || port < 1 || port > 65535) {
+      throw PairingError('peer sent an invalid SSH port');
+    }
     final rawHostKeys = m['hostKeys'];
-    if (rawHostKeys is! List || rawHostKeys.length > 8) throw PairingError('peer sent invalid host keys');
+    if (rawHostKeys is! List || rawHostKeys.length > 8) {
+      throw PairingError('peer sent invalid host keys');
+    }
     final hostKeys = <String>[];
     for (final k in rawHostKeys) {
       if (k is! String) throw PairingError('peer sent invalid host keys');
@@ -124,7 +135,12 @@ class PairingPayload {
 /// Length-prefixed JSON frames over a socket.
 class FrameChannel {
   FrameChannel(this.socket) {
-    _sub = socket.listen(_onData, onError: _onError, onDone: _onDone, cancelOnError: true);
+    _sub = socket.listen(
+      _onData,
+      onError: _onError,
+      onDone: _onDone,
+      cancelOnError: true,
+    );
   }
 
   final Socket socket;
@@ -148,7 +164,9 @@ class FrameChannel {
       final Map<String, dynamic> msg;
       try {
         final decoded = jsonDecode(utf8.decode(bytes.sublist(4, 4 + len)));
-        if (decoded is! Map<String, dynamic>) throw const FormatException('not an object');
+        if (decoded is! Map<String, dynamic>) {
+          throw const FormatException('not an object');
+        }
         msg = decoded;
       } on FormatException {
         _fail(PairingError('malformed pairing message'));
@@ -174,7 +192,8 @@ class FrameChannel {
   }
 
   void _onError(Object e) => _fail(PairingError('connection error: $e'));
-  void _onDone() => _fail(PairingError('the other device closed the connection'));
+  void _onDone() =>
+      _fail(PairingError('the other device closed the connection'));
 
   /// Next message, or throws [PairingError] on timeout/close.
   Future<Map<String, dynamic>> next(Duration timeout) {
@@ -182,10 +201,13 @@ class FrameChannel {
     if (_error != null) return Future.error(_error!);
     final c = Completer<Map<String, dynamic>>();
     _waiters.add(c);
-    return c.future.timeout(timeout, onTimeout: () {
-      _waiters.remove(c);
-      throw PairingError('timed out waiting for the other device');
-    });
+    return c.future.timeout(
+      timeout,
+      onTimeout: () {
+        _waiters.remove(c);
+        throw PairingError('timed out waiting for the other device');
+      },
+    );
   }
 
   /// Next message, which must be of type [t] (an `abort` becomes an error).
@@ -193,10 +215,16 @@ class FrameChannel {
     final m = await next(timeout);
     final type = m['t'];
     if (type == 'abort') {
-      throw PairingError('the other device cancelled: ${sanitizeName(m['reason'])}');
+      throw PairingError(
+        'the other device cancelled: ${sanitizeName(m['reason'])}',
+      );
     }
-    if (type == 'busy') throw PairingError('the other device is already pairing');
-    if (type != t) throw PairingError('unexpected pairing message "$type" (expected "$t")');
+    if (type == 'busy') {
+      throw PairingError('the other device is already pairing');
+    }
+    if (type != t) {
+      throw PairingError('unexpected pairing message "$type" (expected "$t")');
+    }
     return m;
   }
 

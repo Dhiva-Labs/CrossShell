@@ -41,11 +41,12 @@ typedef ConfirmCode = Future<bool> Function(PairingPrompt prompt);
 /// Persist trust in the peer (authorized_keys, known_hosts, ssh config,
 /// peer list). Throwing aborts the pairing and the message is shown to both
 /// users.
-typedef ApplyPeer = Future<void> Function(
-  PeerIdentity peer,
-  PairingPayload payload,
-  String peerAddress,
-);
+typedef ApplyPeer =
+    Future<void> Function(
+      PeerIdentity peer,
+      PairingPayload payload,
+      String peerAddress,
+    );
 
 class PairingOutcome {
   PairingOutcome(this.peer, this.payload, this.peerAddress);
@@ -77,9 +78,15 @@ Future<PairingOutcome> initiatePairing({
 }) async {
   final Socket socket;
   try {
-    socket = await Socket.connect(host, port, timeout: const Duration(seconds: 5));
+    socket = await Socket.connect(
+      host,
+      port,
+      timeout: const Duration(seconds: 5),
+    );
   } on SocketException catch (e) {
-    throw PairingError('cannot reach $host:$port — is CrossShell open there? (${e.osError?.message ?? e.message})');
+    throw PairingError(
+      'cannot reach $host:$port — is CrossShell open there? (${e.osError?.message ?? e.message})',
+    );
   }
   final ch = FrameChannel(socket);
   try {
@@ -95,10 +102,20 @@ Future<PairingOutcome> initiatePairing({
     final peer = PeerIdentity.fromJson(key);
     if (peer.id == me.id) throw PairingError('that is this machine');
     final pkR = _b64(key['pk'], 32, 'peer key');
-    ch.send({'t': 'reveal', 'pk': base64.encode(eph.publicKey), 'nonce': base64.encode(nonce)});
+    ch.send({
+      't': 'reveal',
+      'pk': base64.encode(eph.publicKey),
+      'nonce': base64.encode(nonce),
+    });
 
     final ss = await eph.sharedSecret(pkR);
-    final th = await transcriptHash(pkI: eph.publicKey, pkR: pkR, nonceI: nonce, idI: me.id, idR: peer.id);
+    final th = await transcriptHash(
+      pkI: eph.publicKey,
+      pkR: pkR,
+      nonceI: nonce,
+      idI: me.id,
+      idR: peer.id,
+    );
     return await _confirmAndExchange(
       ch: ch,
       peer: peer,
@@ -130,8 +147,13 @@ Future<PairingOutcome> respondToPairing({
   try {
     final hello = await ch.expect('hello', _stepTimeout);
     if (hello['v'] != pairingProtocolVersion) {
-      ch.send({'t': 'abort', 'reason': 'unsupported pairing version ${hello['v']}'});
-      throw PairingError('the other device runs an incompatible CrossShell version');
+      ch.send({
+        't': 'abort',
+        'reason': 'unsupported pairing version ${hello['v']}',
+      });
+      throw PairingError(
+        'the other device runs an incompatible CrossShell version',
+      );
     }
     final peer = PeerIdentity.fromJson(hello);
     if (peer.id == me.id) throw PairingError('refusing to pair with myself');
@@ -144,11 +166,19 @@ Future<PairingOutcome> respondToPairing({
     final nonce = _b64(reveal['nonce'], 32, 'nonce');
     if (!constantTimeEquals(await commitment(pkI, nonce), commit)) {
       ch.send({'t': 'abort', 'reason': 'commitment mismatch'});
-      throw PairingError('the other device broke the pairing protocol (commitment mismatch) — possible interception');
+      throw PairingError(
+        'the other device broke the pairing protocol (commitment mismatch) — possible interception',
+      );
     }
 
     final ss = await eph.sharedSecret(pkI);
-    final th = await transcriptHash(pkI: pkI, pkR: eph.publicKey, nonceI: nonce, idI: peer.id, idR: me.id);
+    final th = await transcriptHash(
+      pkI: pkI,
+      pkR: eph.publicKey,
+      nonceI: nonce,
+      idI: peer.id,
+      idR: me.id,
+    );
     return await _confirmAndExchange(
       ch: ch,
       peer: peer,
@@ -190,31 +220,42 @@ Future<PairingOutcome> _confirmAndExchange({
 
   // Read the other side's verdict while our user looks at the code.
   final cancelled = Completer<String>();
-  final remoteVerdict = ch.next(confirmTimeout + _stepTimeout).then((m) {
-    if (m['t'] != 'confirm' && !cancelled.isCompleted) {
-      cancelled.complete(m['t'] == 'abort' ? sanitizeName(m['reason']) : 'protocol error');
-    }
-    return m;
-  }, onError: (Object e) {
-    if (!cancelled.isCompleted) cancelled.complete(e.toString());
-    throw e;
-  });
+  final remoteVerdict = ch
+      .next(confirmTimeout + _stepTimeout)
+      .then(
+        (m) {
+          if (m['t'] != 'confirm' && !cancelled.isCompleted) {
+            cancelled.complete(
+              m['t'] == 'abort' ? sanitizeName(m['reason']) : 'protocol error',
+            );
+          }
+          return m;
+        },
+        onError: (Object e) {
+          if (!cancelled.isCompleted) cancelled.complete(e.toString());
+          throw e;
+        },
+      );
   // Errors surface where we await it below; don't report them as uncaught
   // while the user is still looking at the code.
   remoteVerdict.ignore();
 
-  final ok = await confirm(PairingPrompt(
-    peer: peer,
-    code: code,
-    incoming: !initiator,
-    remoteCancelled: cancelled.future,
-  )).timeout(confirmTimeout, onTimeout: () => false);
+  final ok = await confirm(
+    PairingPrompt(
+      peer: peer,
+      code: code,
+      incoming: !initiator,
+      remoteCancelled: cancelled.future,
+    ),
+  ).timeout(confirmTimeout, onTimeout: () => false);
   if (!ok) {
     final remoteReason = cancelled.isCompleted ? await cancelled.future : null;
     // Close the local dialog too if we got here by timing out.
     if (!cancelled.isCompleted) cancelled.complete('timed out');
     ch.send({'t': 'abort', 'reason': 'code rejected or timed out'});
-    if (remoteReason != null) throw PairingError('the other device cancelled: $remoteReason');
+    if (remoteReason != null) {
+      throw PairingError('the other device cancelled: $remoteReason');
+    }
     throw PairingError('pairing cancelled');
   }
   ch.send({'t': 'confirm'});
@@ -224,18 +265,30 @@ Future<PairingOutcome> _confirmAndExchange({
   }
 
   // Both users confirmed the same code: exchange sealed payloads.
-  final myKey = await deriveKey(sharedSecret, transcript, initiator ? keyInfoInitiator : keyInfoResponder);
-  final theirKey = await deriveKey(sharedSecret, transcript, initiator ? keyInfoResponder : keyInfoInitiator);
+  final myKey = await deriveKey(
+    sharedSecret,
+    transcript,
+    initiator ? keyInfoInitiator : keyInfoResponder,
+  );
+  final theirKey = await deriveKey(
+    sharedSecret,
+    transcript,
+    initiator ? keyInfoResponder : keyInfoInitiator,
+  );
   ch.send({
     't': 'payload',
-    'box': base64.encode(await seal(myKey, utf8.encode(jsonEncode(myPayload.toJson())))),
+    'box': base64.encode(
+      await seal(myKey, utf8.encode(jsonEncode(myPayload.toJson()))),
+    ),
   });
   final boxMsg = await ch.expect('payload', _stepTimeout);
   final Uint8List plain;
   try {
     plain = await open(theirKey, base64.decode(boxMsg['box'] as String));
   } catch (_) {
-    throw PairingError('the other device sent a payload that failed authentication — possible interception');
+    throw PairingError(
+      'the other device sent a payload that failed authentication — possible interception',
+    );
   }
   final Object? decoded;
   try {
@@ -243,7 +296,9 @@ Future<PairingOutcome> _confirmAndExchange({
   } on FormatException {
     throw PairingError('the other device sent a malformed payload');
   }
-  if (decoded is! Map<String, dynamic>) throw PairingError('the other device sent a malformed payload');
+  if (decoded is! Map<String, dynamic>) {
+    throw PairingError('the other device sent a malformed payload');
+  }
   final payload = PairingPayload.fromJson(decoded);
 
   try {

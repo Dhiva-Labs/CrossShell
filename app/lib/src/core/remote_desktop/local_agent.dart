@@ -39,12 +39,24 @@ class LocalAgent {
     await File(p.join(LocalSystem.stateDir, 'agent-path')).writeAsString(exe);
   }
 
+  /// Why the agent could not be started (null = started or not needed).
+  String? startError;
+
   /// Start the agent detached so it outlives the app window. It is
-  /// single-instance, so starting it twice is harmless.
+  /// single-instance, so starting it twice is harmless. Never throws: a
+  /// blocked or missing agent must not take the rest of the app down.
   Future<void> ensureRunning() async {
     final exe = agentPath;
-    if (exe == null) return;
-    await Process.start(exe, const [], mode: ProcessStartMode.detached);
+    if (exe == null) {
+      startError = 'crossshell-host is missing from this installation';
+      return;
+    }
+    try {
+      await Process.start(exe, const [], mode: ProcessStartMode.detached);
+      startError = null;
+    } on ProcessException catch (e) {
+      startError = describeStartFailure(e);
+    }
   }
 
   void startWatching() {
@@ -131,4 +143,14 @@ class LocalAgent {
     _poll?.cancel();
     _status.close();
   }
+}
+
+/// Turn a failed agent launch into something a person can act on.
+String describeStartFailure(ProcessException e) {
+  // ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION: Smart App Control / WDAC.
+  if (e.errorCode == 4551 || e.message.contains('4551')) {
+    return 'Windows Smart App Control blocked crossshell-host.exe because this build is not code-signed. '
+        'Install a signed CrossShell release to share this screen.';
+  }
+  return 'Could not start crossshell-host: ${e.message}';
 }

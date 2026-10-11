@@ -34,7 +34,9 @@ class PublicKey {
       throw const FormatException('public key must be a single line');
     }
     final parts = s.split(RegExp(r'\s+'));
-    if (parts.length < 2) throw const FormatException('not an OpenSSH public key');
+    if (parts.length < 2) {
+      throw const FormatException('not an OpenSSH public key');
+    }
     final type = parts[0];
     final b64 = parts[1];
     if (!allowedKeyTypes.contains(type)) {
@@ -52,10 +54,14 @@ class PublicKey {
     // The blob starts with the length-prefixed key type.
     if (blob.length < 4) throw const FormatException('key data too short');
     final n = (blob[0] << 24) | (blob[1] << 16) | (blob[2] << 8) | blob[3];
-    if (n <= 0 || 4 + n > blob.length) throw const FormatException('key data truncated');
+    if (n <= 0 || 4 + n > blob.length) {
+      throw const FormatException('key data truncated');
+    }
     final inner = ascii.decode(blob.sublist(4, 4 + n), allowInvalid: true);
     if (inner != type) {
-      throw FormatException('key type "$type" does not match its data ("$inner")');
+      throw FormatException(
+        'key type "$type" does not match its data ("$inner")',
+      );
     }
     return PublicKey._(type, b64, blob);
   }
