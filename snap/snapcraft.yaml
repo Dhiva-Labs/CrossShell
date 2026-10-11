@@ -9,7 +9,7 @@
 name: crossshell
 title: CrossShell
 base: core24
-version: '0.1.0'
+version: '0.1.1'
 summary: SSH both ways, files and remote desktop between Linux and Windows
 description: |
   CrossShell links your Linux machine and your Windows machine (or any mix
