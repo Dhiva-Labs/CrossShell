@@ -1,0 +1,90 @@
+// Commands CrossShell runs on a peer over SSH. Windows peers may default to
+// cmd.exe or PowerShell, so Windows commands are `powershell -EncodedCommand`
+// (no quoting surprises in either shell). Linux peers may use any login
+// shell (fish!), so Linux commands are wrapped in `sh -c '…'`.
+
+import '../ssh/setup_scripts.dart' show encodePowerShell, shQuote;
+
+// Progress records would otherwise reach stderr as CLIXML over SSH.
+String _ps(String script) => 'powershell -NoProfile -NonInteractive -EncodedCommand '
+    "${encodePowerShell("\$ProgressPreference = 'SilentlyContinue'\n$script")}";
+String _sh(String script) => 'sh -c ${shQuote(script)}';
+
+/// Print host.json if the agent it describes is still running; print
+/// nothing otherwise.
+String readHostInfoCommand({required bool windows}) => windows
+    ? _ps(r'''
+$f = Join-Path $env:LOCALAPPDATA 'CrossShell\host.json'
+if (Test-Path -LiteralPath $f) {
+  $raw = Get-Content -LiteralPath $f -Raw
+  $j = $raw | ConvertFrom-Json
+  if (Get-Process -Id $j.pid -ErrorAction SilentlyContinue) { [Console]::Out.Write($raw) }
+}
+''')
+    : _sh(r'''
+f="${XDG_RUNTIME_DIR:-$HOME/.cache}/crossshell/host.json"
+[ -f "$f" ] || exit 0
+pid=$(sed -n 's/.*"pid":\([0-9][0-9]*\).*/\1/p' "$f")
+[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && cat "$f"
+exit 0
+''');
+
+/// Start the peer's agent inside its signed-in desktop session.
+///
+/// Windows: an SSH session lives in session 0 and can't see the desktop, so
+/// the agent runs as an interactive scheduled task (highest privileges when
+/// the user is an admin, so it can also drive elevated windows).
+/// Linux: `systemd-run --user` inherits the graphical session's environment.
+String startAgentCommand({required bool windows}) => windows
+    ? _ps(r'''
+$ErrorActionPreference = 'Stop'
+$pathFile = Join-Path $env:LOCALAPPDATA 'CrossShell\agent-path'
+if (-not (Test-Path -LiteralPath $pathFile)) { throw 'CrossShell has never been started on this machine' }
+$exe = (Get-Content -LiteralPath $pathFile -Raw).Trim()
+if (-not (Test-Path -LiteralPath $exe)) { throw "CrossShell agent not found at $exe (moved or uninstalled?)" }
+$user = "$env:USERDOMAIN\$env:USERNAME"
+$action = New-ScheduledTaskAction -Execute $exe
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
+try {
+  $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Highest
+  Register-ScheduledTask -TaskName 'CrossShellHost' -Action $action -Principal $principal -Settings $settings -Force | Out-Null
+} catch {
+  $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
+  Register-ScheduledTask -TaskName 'CrossShellHost' -Action $action -Principal $principal -Settings $settings -Force | Out-Null
+}
+Start-ScheduledTask -TaskName 'CrossShellHost'
+''')
+    : _sh(r'''
+set -e
+pf="${XDG_STATE_HOME:-$HOME/.local/state}/crossshell/agent-path"
+[ -f "$pf" ] || { echo "CrossShell has never been started on this machine" >&2; exit 3; }
+exe=$(cat "$pf")
+[ -x "$exe" ] || { echo "CrossShell agent not found at $exe (moved or uninstalled?)" >&2; exit 4; }
+systemd-run --user --collect --quiet --unit="crossshell-host-$(date +%s)" "$exe"
+''');
+
+/// Remove this machine's key (marker `crossshell:<myId>`) from the peer's
+/// authorized keys — used when unpairing so trust ends on both sides.
+/// Windows admins: SSH key logons get a full (elevated) token, so the
+/// ProgramData file is writable from the session.
+String revokeSelfCommand({required bool windows, required String myId}) {
+  if (!RegExp(r'^[A-Za-z0-9-]{8,64}$').hasMatch(myId)) throw ArgumentError('bad id');
+  final marker = 'crossshell:$myId';
+  return windows
+      ? _ps('''
+\$marker = ' $marker'
+foreach (\$f in @((Join-Path \$env:ProgramData 'ssh\\administrators_authorized_keys'), (Join-Path \$env:USERPROFILE '.ssh\\authorized_keys'))) {
+  if (Test-Path -LiteralPath \$f) {
+    \$keep = @(Get-Content -LiteralPath \$f | Where-Object { \$_ -and -not \$_.TrimEnd().EndsWith(\$marker) })
+    Set-Content -LiteralPath \$f -Value \$keep -Encoding ascii
+  }
+}
+''')
+      : _sh('''
+f="\$HOME/.ssh/authorized_keys"
+[ -f "\$f" ] || exit 0
+tmp="\$f.crossshell.\$\$"
+grep -v ' $marker\$' "\$f" > "\$tmp" || true
+chmod 600 "\$tmp" && mv "\$tmp" "\$f"
+''');
+}
