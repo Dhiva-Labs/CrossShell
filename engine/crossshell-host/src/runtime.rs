@@ -23,6 +23,8 @@ pub struct HostInfo {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionStatus {
+    /// The agent's pid, so readers can tell a live status from a stale one.
+    pub pid: u32,
     pub viewer: String,
     pub since: u64,
     pub view_only: bool,

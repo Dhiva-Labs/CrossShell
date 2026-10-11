@@ -207,7 +207,7 @@ pub fn serve_connection(mut stream: TcpStream, opts: &SessionOptions, slot: &Ses
     let status_path = opts.runtime_dir.as_ref().map(|d| runtime::status_json_path(d));
     if let Some(p) = &status_path {
         let since = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-        let st = SessionStatus { viewer: viewer.clone(), since, view_only };
+        let st = SessionStatus { pid: std::process::id(), viewer: viewer.clone(), since, view_only };
         let _ = runtime::write_private(p, serde_json::to_string(&st)?.as_bytes());
     }
     let _status = StatusGuard(status_path);

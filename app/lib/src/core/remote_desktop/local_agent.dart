@@ -57,9 +57,16 @@ class LocalAgent {
     try {
       if (await f.exists()) {
         final m = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
+        // Ignore a status file whose agent is gone (killed mid-session).
+        final pid = m['pid'];
+        if (pid is! int || !await _isAgentCached(pid)) {
+          throw const FormatException('stale');
+        }
         s = WatchStatus(
           m['viewer'] as String? ?? 'someone',
-          DateTime.fromMillisecondsSinceEpoch(((m['since'] as int?) ?? 0) * 1000),
+          DateTime.fromMillisecondsSinceEpoch(
+            ((m['since'] as int?) ?? 0) * 1000,
+          ),
           m['viewOnly'] == true,
         );
       }
@@ -80,17 +87,41 @@ class LocalAgent {
     } catch (_) {}
   }
 
+  int? _livePid;
+  DateTime _livePidCheckedAt = DateTime(0);
+
+  Future<bool> _isAgentCached(int pid) async {
+    final fresh =
+        DateTime.now().difference(_livePidCheckedAt) <
+        const Duration(seconds: 10);
+    if (_livePid == pid && fresh) return true;
+    final ok = await _isAgent(pid);
+    if (ok) {
+      _livePid = pid;
+      _livePidCheckedAt = DateTime.now();
+    }
+    return ok;
+  }
+
   /// host.json can outlive its process; never kill a recycled pid.
   Future<bool> _isAgent(int pid) async {
     if (Platform.isLinux) {
       try {
-        return p.basename(await Link('/proc/$pid/exe').target()).startsWith('crossshell-host');
+        return p
+            .basename(await Link('/proc/$pid/exe').target())
+            .startsWith('crossshell-host');
       } catch (_) {
         return false;
       }
     }
     if (Platform.isWindows) {
-      final r = await Process.run('tasklist', ['/FI', 'PID eq $pid', '/FO', 'CSV', '/NH']);
+      final r = await Process.run('tasklist', [
+        '/FI',
+        'PID eq $pid',
+        '/FO',
+        'CSV',
+        '/NH',
+      ]);
       return (r.stdout as String).toLowerCase().contains('crossshell-host.exe');
     }
     return false;

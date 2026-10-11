@@ -80,6 +80,8 @@ fn run() -> anyhow::Result<()> {
         log::info!("another crossshell-host is already running; exiting");
         return Ok(());
     };
+    // A previous agent killed mid-session leaves its status behind.
+    let _ = std::fs::remove_file(runtime::status_json_path(&dir));
 
     // Preferred port, else any free one (recorded in host.json).
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, args.port))
