@@ -5,9 +5,20 @@
 
 import '../ssh/setup_scripts.dart' show encodePowerShell, shQuote;
 
-// Progress records would otherwise reach stderr as CLIXML over SSH.
+// Progress records and errors would otherwise reach stderr as CLIXML over
+// SSH; report errors as one plain line instead.
 String _ps(String script) => 'powershell -NoProfile -NonInteractive -EncodedCommand '
-    "${encodePowerShell("\$ProgressPreference = 'SilentlyContinue'\n$script")}";
+    '${encodePowerShell(_psWrap(script))}';
+
+String _psWrap(String script) => """
+\$ProgressPreference = 'SilentlyContinue'
+try {
+$script
+} catch {
+  [Console]::Error.WriteLine(\$_.Exception.Message)
+  exit 1
+}
+""";
 String _sh(String script) => 'sh -c ${shQuote(script)}';
 
 /// Print host.json if the agent it describes is still running; print
@@ -42,7 +53,8 @@ $pathFile = Join-Path $env:LOCALAPPDATA 'CrossShell\agent-path'
 if (-not (Test-Path -LiteralPath $pathFile)) { throw 'CrossShell has never been started on this machine' }
 $exe = (Get-Content -LiteralPath $pathFile -Raw).Trim()
 if (-not (Test-Path -LiteralPath $exe)) { throw "CrossShell agent not found at $exe (moved or uninstalled?)" }
-$user = "$env:USERDOMAIN\$env:USERNAME"
+# USERDOMAIN is unset in SSH sessions; the token knows the real account.
+$user = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $action = New-ScheduledTaskAction -Execute $exe
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
 try {
@@ -62,6 +74,24 @@ exe=$(cat "$pf")
 [ -x "$exe" ] || { echo "CrossShell agent not found at $exe (moved or uninstalled?)" >&2; exit 4; }
 systemd-run --user --collect --quiet --unit="crossshell-host-$(date +%s)" "$exe"
 ''');
+
+/// Why the agent didn't come up on a Windows peer: prints the scheduled
+/// task's last result code (decimal), or nothing.
+String agentLastResultCommand() => _ps(r'''
+$i = Get-ScheduledTaskInfo -TaskName 'CrossShellHost' -ErrorAction SilentlyContinue
+if ($i) { [Console]::Out.Write($i.LastTaskResult) }
+''');
+
+/// Human explanation for a scheduled-task result code, if we know it.
+String? explainTaskResult(int code) => switch (code & 0xffffffff) {
+      // ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION
+      0x800711C7 || 0x000011C7 =>
+        'Windows Smart App Control blocked crossshell-host.exe on that machine because the build is not '
+            'code-signed. Install a signed CrossShell release there.',
+      0x80070002 || 0x00000002 => 'crossshell-host.exe was not found on that machine (moved or uninstalled?).',
+      0x800710E0 => 'Windows refused to start it: nobody is signed in to that machine\'s desktop.',
+      _ => null,
+    };
 
 /// Remove this machine's key (marker `crossshell:<myId>`) from the peer's
 /// authorized keys — used when unpairing so trust ends on both sides.

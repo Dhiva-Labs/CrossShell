@@ -7,6 +7,7 @@ import 'package:dartssh2/dartssh2.dart';
 
 import '../pairing/pairing_crypto.dart' show constantTimeEquals;
 import '../peers/peer.dart';
+import 'ssh_algorithms.dart';
 import '../platform/local_system.dart';
 import 'public_key.dart';
 import 'ssh_files.dart';
@@ -22,7 +23,9 @@ class ConnectError implements Exception {
 /// keys pinned at pairing.
 Future<SSHClient> connectToPeer(Peer peer, SshFiles files) async {
   if (!peer.canConnect) {
-    throw ConnectError('${peer.name} had no SSH server when you paired. Enable it there, then pair again.');
+    throw ConnectError(
+      '${peer.name} had no SSH server when you paired. Enable it there, then pair again.',
+    );
   }
   final pinned = <String>{};
   for (final k in peer.hostKeys) {
@@ -32,14 +35,20 @@ Future<SSHClient> connectToPeer(Peer peer, SshFiles files) async {
 
   final SSHSocket socket;
   try {
-    socket = await SSHSocket.connect(peer.lastIp, peer.sshPort, timeout: const Duration(seconds: 8));
+    socket = await SSHSocket.connect(
+      peer.lastIp,
+      peer.sshPort,
+      timeout: const Duration(seconds: 8),
+    );
   } on SocketException catch (e) {
     throw ConnectError(
       'Cannot reach ${peer.name} at ${peer.lastIp}:${peer.sshPort} '
       '(${e.osError?.message ?? e.message}). Is it on and on this network?',
     );
   } on TimeoutException {
-    throw ConnectError('Timed out reaching ${peer.name} at ${peer.lastIp}:${peer.sshPort}.');
+    throw ConnectError(
+      'Timed out reaching ${peer.name} at ${peer.lastIp}:${peer.sshPort}.',
+    );
   }
 
   var hostKeyMismatch = false;
@@ -47,9 +56,13 @@ Future<SSHClient> connectToPeer(Peer peer, SshFiles files) async {
     socket,
     username: peer.sshUser,
     identities: identities,
+    // ChaCha20 first: dartssh2's AES is pure Dart and ~10x slower.
+    algorithms: fastSshAlgorithms,
     onVerifyHostKey: (type, fingerprint) {
       final fp = String.fromCharCodes(fingerprint);
-      final ok = pinned.any((p) => constantTimeEquals(p.codeUnits, fp.codeUnits));
+      final ok = pinned.any(
+        (p) => constantTimeEquals(p.codeUnits, fp.codeUnits),
+      );
       hostKeyMismatch = !ok;
       return ok;
     },
@@ -78,16 +91,20 @@ Future<SSHClient> connectToPeer(Peer peer, SshFiles files) async {
 
 /// Arguments for the system ssh using only CrossShell's config (`-F`), so
 /// the user's own ~/.ssh/config can't change what we connect to.
-List<String> systemSshArgs(SshLayout layout, Peer peer, {List<String> extra = const []}) => [
-      '-F',
-      layout.config,
-      '-o',
-      'BatchMode=yes',
-      '-o',
-      'ConnectTimeout=8',
-      ...extra,
-      peer.alias,
-    ];
+List<String> systemSshArgs(
+  SshLayout layout,
+  Peer peer, {
+  List<String> extra = const [],
+}) => [
+  '-F',
+  layout.config,
+  '-o',
+  'BatchMode=yes',
+  '-o',
+  'ConnectTimeout=8',
+  ...extra,
+  peer.alias,
+];
 
 /// Run [command] on [peer] via the system ssh; returns stdout.
 Future<String> runOnPeer(
@@ -95,5 +112,7 @@ Future<String> runOnPeer(
   Peer peer,
   String command, {
   Duration timeout = const Duration(seconds: 30),
-}) =>
-    runTool(LocalSystem.sshTool('ssh'), [...systemSshArgs(layout, peer), command], timeout: timeout);
+}) => runTool(LocalSystem.sshTool('ssh'), [
+  ...systemSshArgs(layout, peer),
+  command,
+], timeout: timeout);

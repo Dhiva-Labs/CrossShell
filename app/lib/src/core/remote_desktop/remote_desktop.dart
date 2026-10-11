@@ -123,6 +123,13 @@ class RemoteDesktopSession {
         info = await _fetchInfo(layout, peer);
       }
       if (info == null) {
+        if (peer.isWindows) {
+          final code = int.tryParse((await runOnPeer(layout, peer, agentLastResultCommand())
+                  .catchError((Object _) => ''))
+              .trim());
+          final why = code == null ? null : explainTaskResult(code);
+          if (why != null) throw RemoteDesktopError('Screen sharing could not start on ${peer.name}: $why');
+        }
         throw RemoteDesktopError(
           'Screen sharing did not come up on ${peer.name}. Someone has to be signed in to its desktop '
           '(a locked screen is fine on Windows).',

@@ -76,8 +76,24 @@ class LocalAgent {
     try {
       final m = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
       final pid = m['pid'];
-      if (pid is int) Process.killPid(pid);
+      if (pid is int && await _isAgent(pid)) Process.killPid(pid);
     } catch (_) {}
+  }
+
+  /// host.json can outlive its process; never kill a recycled pid.
+  Future<bool> _isAgent(int pid) async {
+    if (Platform.isLinux) {
+      try {
+        return p.basename(await Link('/proc/$pid/exe').target()).startsWith('crossshell-host');
+      } catch (_) {
+        return false;
+      }
+    }
+    if (Platform.isWindows) {
+      final r = await Process.run('tasklist', ['/FI', 'PID eq $pid', '/FO', 'CSV', '/NH']);
+      return (r.stdout as String).toLowerCase().contains('crossshell-host.exe');
+    }
+    return false;
   }
 
   void dispose() {
