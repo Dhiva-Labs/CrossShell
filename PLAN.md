@@ -242,7 +242,7 @@ Session:
 | H→V | 0x24 | DisplaysChanged | u8 n, n × Display |
 | V→H | 0x30 | PointerMove | i32 x, i32 y (absolute, frame pixel coords) |
 | V→H | 0x31 | PointerButton | u8 button (1 left,2 middle,3 right,4 back,5 forward), u8 down |
-| V→H | 0x32 | Scroll | i16 dx, i16 dy (in 1/120 wheel-notch units, +y = up) |
+| V→H | 0x32 | Scroll | i16 dx, i16 dy (in 1/120 wheel-notch units, +y = up, +x = right) |
 | V→H | 0x33 | Key | u16 evdev keycode, u8 down |
 | V→H | 0x34 | ReleaseAll | — (focus lost) |
 | both | 0x40 | ClipboardText | utf8 bytes (≤ 1 MiB) |
