@@ -298,13 +298,21 @@ evdev straight to the portal (`NotifyKeyboardKeycode`) or XTest (`evdev + 8`).
   per-monitor DPI aware; `SendInput` for input; cursor via
   `GetCursorInfo`/`GetIconInfo`. Secure desktop (UAC, lock screen) → ACCESS_LOST
   → send Notice and retry every 500 ms.
-- **Linux Wayland**: xdg-desktop-portal RemoteDesktop + ScreenCast (ashpd),
-  `persist_mode = 2` with the restore token stored in
-  `~/.local/state/crossshell/portal-token`; frames from PipeWire; input via
-  portal `NotifyPointerMotionAbsolute/Button/Axis/KeyboardKeycode`. The first
-  session shows the desktop's consent dialog once.
-- **Linux X11**: XShm `GetImage` on the root window + XTest for input,
-  XFixes cursor.
+- **Linux GNOME (Wayland or X11)**: Mutter's own `org.gnome.Mutter.RemoteDesktop`
+  + `ScreenCast` D-Bus API (what gnome-remote-desktop uses): no consent
+  dialog, so unattended access works; GNOME shows its "screen is being
+  shared" indicator while connected. Frames from PipeWire, input via
+  `NotifyPointerMotionAbsolute/Button/Axis/KeyboardKeycode`. Cursor as stream
+  metadata on one monitor; drawn into frames with several monitors (Mutter
+  starves a stream fed only cursor updates).
+- **Linux other Wayland (KDE, wlroots…)**: xdg-desktop-portal RemoteDesktop
+  + ScreenCast, `persist_mode = 2` with the restore token stored in
+  `~/.local/state/crossshell/portal-token`; the first session shows the
+  desktop's consent dialog once.
+- **Linux X11**: XShm `GetImage` per RandR monitor (XDamage-driven) + XTest
+  for input, XFixes cursor.
+- Overrides: `CROSSSHELL_LINUX_BACKEND=mutter|portal|x11`,
+  `CROSSSHELL_CURSOR=metadata|embedded`.
 
 Backend trait (crossshell-host `platform` module):
 
@@ -339,9 +347,9 @@ when the window gains/loses focus.
   service is a later milestone.)
 - Windows: input into elevated windows needs the agent elevated (admin users:
   scheduled task runs with highest privileges).
-- Linux Wayland: first remote session needs one local click on the portal
-  consent dialog; the restore token avoids it afterwards. No lock-screen
-  capture.
+- Linux: GNOME needs no prompt (Mutter API). Other Wayland desktops need
+  one local click on the portal consent dialog the first time; the restore
+  token avoids it afterwards. No lock-screen capture.
 - Windows Home has no RDP server — that's why we have our own engine.
 - LAN only in v0.x. Over the internet: put both machines on a VPN
   (Tailscale/WireGuard) — beacons won't cross, add by IP.

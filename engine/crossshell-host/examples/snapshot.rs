@@ -63,13 +63,17 @@ fn main() -> anyhow::Result<()> {
     let mut dec = Decoder::new();
     let started = Instant::now();
     let (mut got, mut bytes) = (0u32, 0usize);
-    let mut last_ping = Instant::now();
-    s.set_read_timeout(Some(Duration::from_secs(15)))?;
-    while got < frames {
-        if last_ping.elapsed() > Duration::from_secs(2) {
-            Message::Ping(0).write_to(&mut s)?;
-            last_ping = Instant::now();
+    // Ping from a separate thread so a static screen (no frames) doesn't
+    // let the host's 15 s idle timeout fire.
+    let mut pinger = s.try_clone()?;
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_secs(2));
+        if Message::Ping(0).write_to(&mut pinger).is_err() {
+            break;
         }
+    });
+    s.set_read_timeout(Some(Duration::from_secs(60)))?;
+    while got < frames {
         match Message::read_from(&mut s, MAX_PAYLOAD)? {
             Message::Frame { seq, width, height, rects } => {
                 bytes += rects.iter().map(|r| r.data.len()).sum::<usize>();
