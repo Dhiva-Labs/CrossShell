@@ -1,0 +1,30 @@
+[package]
+name = "crossshell-host"
+description = "CrossShell screen-share agent: serves the user's desktop to viewers over an SSH tunnel"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "crossshell-host"
+path = "src/main.rs"
+
+[dependencies]
+crossshell-proto = { path = "../crossshell-proto" }
+crossshell-platform = { path = "../crossshell-platform" }
+anyhow = "1"
+log = "0.4"
+getrandom = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+arboard = { version = "3", default-features = false }
+
+[target.'cfg(windows)'.dependencies]
+crossshell-platform-windows = { path = "../platform-windows" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+crossshell-platform-linux = { path = "../platform-linux" }

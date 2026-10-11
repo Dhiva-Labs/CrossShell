@@ -1,0 +1,15 @@
+[package]
+name = "crossshell-platform-windows"
+description = "Windows capture (DXGI Desktop Duplication) and input (SendInput) for the CrossShell host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+crossshell-platform = { path = "../crossshell-platform" }
+crossshell-proto = { path = "../crossshell-proto" }
+anyhow = "1"
+log = "0.4"
+
+[target.'cfg(windows)'.dependencies]

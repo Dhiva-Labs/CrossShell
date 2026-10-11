@@ -1,0 +1,12 @@
+[package]
+name = "crossshell-platform"
+description = "Capture/input backend traits for the CrossShell host, plus a synthetic backend for tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+crossshell-proto = { path = "../crossshell-proto" }
+anyhow = "1"
+log = "0.4"

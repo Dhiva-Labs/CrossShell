@@ -1,0 +1,15 @@
+[package]
+name = "crossshell-platform-linux"
+description = "Linux capture and input for the CrossShell host: xdg-desktop-portal + PipeWire (Wayland), XShm + XTest (X11)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+crossshell-platform = { path = "../crossshell-platform" }
+crossshell-proto = { path = "../crossshell-proto" }
+anyhow = "1"
+log = "0.4"
+
+[target.'cfg(target_os = "linux")'.dependencies]
