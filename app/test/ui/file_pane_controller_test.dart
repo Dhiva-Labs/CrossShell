@@ -6,12 +6,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'helpers/fake_fs.dart';
 
 FakeFs windowsFs() => FakeFs(const SftpWindowsPathStyle())
-  ..addDir('/C:/Users/dhiva/Documents')
-  ..addFile('/C:/Users/dhiva/notes.txt', 'n')
-  ..addFile('/C:/Users/dhiva/file10.txt', '10')
-  ..addFile('/C:/Users/dhiva/file2.txt', '2')
-  ..addFile('/C:/Users/dhiva/.npmrc.json', '{}')
-  ..addDir('/C:/Users/dhiva/AppData')
+  ..addDir('/C:/Users/alex/Documents')
+  ..addFile('/C:/Users/alex/notes.txt', 'n')
+  ..addFile('/C:/Users/alex/file10.txt', '10')
+  ..addFile('/C:/Users/alex/file2.txt', '2')
+  ..addFile('/C:/Users/alex/.npmrc.json', '{}')
+  ..addDir('/C:/Users/alex/AppData')
   ..addDir('/D:/data');
 
 void main() {
@@ -33,14 +33,14 @@ void main() {
   test('navigating through Windows paths and back/forward history', () async {
     final pane = FilePaneController(
       backend: windowsFs(),
-      initialPath: '/C:/Users/dhiva',
+      initialPath: '/C:/Users/alex',
     );
     await pane.init();
-    expect(pane.cwd, '/C:/Users/dhiva');
-    await pane.navigate('/C:/Users/dhiva/Documents');
-    expect(pane.cwd, '/C:/Users/dhiva/Documents');
+    expect(pane.cwd, '/C:/Users/alex');
+    await pane.navigate('/C:/Users/alex/Documents');
+    expect(pane.cwd, '/C:/Users/alex/Documents');
     await pane.goUp();
-    expect(pane.cwd, '/C:/Users/dhiva');
+    expect(pane.cwd, '/C:/Users/alex');
     await pane.goUp();
     await pane.goUp();
     expect(pane.cwd, '/C:/');
@@ -58,7 +58,7 @@ void main() {
       final fs = windowsFs();
       final pane = FilePaneController(
         backend: fs,
-        initialPath: '/C:/Users/dhiva',
+        initialPath: '/C:/Users/alex',
       );
       await pane.init();
       final target = fs.style.resolveInput(r'D:\data', pane.cwd);
@@ -72,11 +72,11 @@ void main() {
     () async {
       final pane = FilePaneController(
         backend: windowsFs(),
-        initialPath: '/C:/Users/dhiva',
+        initialPath: '/C:/Users/alex',
       );
       await pane.init();
       await pane.navigate('/C:/nowhere');
-      expect(pane.cwd, '/C:/Users/dhiva');
+      expect(pane.cwd, '/C:/Users/alex');
       expect(pane.error, contains('does not exist'));
       expect(pane.visible, isNotEmpty);
       await pane.refresh();
@@ -87,7 +87,7 @@ void main() {
   test('hidden files follow the toggle; Windows heuristics apply', () async {
     final pane = FilePaneController(
       backend: windowsFs(),
-      initialPath: '/C:/Users/dhiva',
+      initialPath: '/C:/Users/alex',
     );
     await pane.init();
     expect(pane.visible.map((e) => e.name), isNot(contains('.npmrc.json')));
@@ -103,7 +103,7 @@ void main() {
   test('folders sort first and names sort naturally', () async {
     final pane = FilePaneController(
       backend: windowsFs(),
-      initialPath: '/C:/Users/dhiva',
+      initialPath: '/C:/Users/alex',
     );
     await pane.init();
     expect(pane.visible.map((e) => e.name), [
@@ -144,7 +144,7 @@ void main() {
     setUp(() async {
       pane = FilePaneController(
         backend: windowsFs(),
-        initialPath: '/C:/Users/dhiva',
+        initialPath: '/C:/Users/alex',
       );
       await pane.init();
     });
@@ -194,11 +194,11 @@ void main() {
       () async {
         final pane = FilePaneController(
           backend: windowsFs(),
-          initialPath: '/C:/Users/dhiva',
+          initialPath: '/C:/Users/alex',
         );
         await pane.init();
         await pane.makeDirectory('Projects');
-        expect(pane.cwd, '/C:/Users/dhiva');
+        expect(pane.cwd, '/C:/Users/alex');
         expect(pane.selectedEntries.single.name, 'Projects');
         expect(
           () => pane.makeDirectory('projects'),
@@ -216,7 +216,7 @@ void main() {
         final fs = windowsFs();
         final pane = FilePaneController(
           backend: fs,
-          initialPath: '/C:/Users/dhiva',
+          initialPath: '/C:/Users/alex',
         );
         await pane.init();
         final notes = pane.visible.firstWhere((e) => e.name == 'notes.txt');
@@ -225,7 +225,7 @@ void main() {
           throwsA(isA<FsException>()),
         );
         await pane.renameEntry(notes, 'Notes.txt');
-        expect(fs.exists('/C:/Users/dhiva/Notes.txt'), isTrue);
+        expect(fs.exists('/C:/Users/alex/Notes.txt'), isTrue);
         final renamed = pane.visible.firstWhere((e) => e.name == 'Notes.txt');
         await pane.renameEntry(renamed, 'journal.txt');
         expect(pane.selectedEntries.single.name, 'journal.txt');
@@ -245,12 +245,12 @@ void main() {
     final first = windowsFs();
     final pane = FilePaneController(
       backend: first,
-      initialPath: '/C:/Users/dhiva',
+      initialPath: '/C:/Users/alex',
     );
     await pane.init();
-    final second = windowsFs()..addFile('/C:/Users/dhiva/new.txt', 'x');
+    final second = windowsFs()..addFile('/C:/Users/alex/new.txt', 'x');
     await pane.rebind(second);
-    expect(pane.cwd, '/C:/Users/dhiva');
+    expect(pane.cwd, '/C:/Users/alex');
     expect(pane.visible.map((e) => e.name), contains('new.txt'));
   });
 
@@ -258,7 +258,7 @@ void main() {
     final fs = windowsFs();
     final pane = FilePaneController(
       backend: fs,
-      initialPath: '/C:/Users/dhiva',
+      initialPath: '/C:/Users/alex',
     );
     await pane.init();
     final slow = pane.navigate('/C:/Users');

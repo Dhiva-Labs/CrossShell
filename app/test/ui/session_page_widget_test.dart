@@ -47,9 +47,9 @@ class _Page {
     addTearDown(tester.view.reset);
     support = Directory.systemTemp.createTempSync('cs_page_');
     addTearDown(() => support.deleteSync(recursive: true));
-    final remote = FakeFs(const SftpWindowsPathStyle(), home: '/C:/Users/dhiva')
-      ..addDir('/C:/Users/dhiva/Documents')
-      ..addFile('/C:/Users/dhiva/a.txt', 'a');
+    final remote = FakeFs(const SftpWindowsPathStyle(), home: '/C:/Users/alex')
+      ..addDir('/C:/Users/alex/Documents')
+      ..addFile('/C:/Users/alex/a.txt', 'a');
     final local = FakeFs(const PosixPathStyle(), home: '/home/me')
       ..addFile('/home/me/x.txt', 'x');
     await tester.pumpWidget(
@@ -57,7 +57,7 @@ class _Page {
         theme: buildLightTheme(),
         home: SessionPage(
           peerId: 'peer-1',
-          title: 'lenovo',
+          title: 'winbox',
           os: RemoteOs.windows,
           connect: connect ?? () async => throw StateError('unused'),
           initialTab: initialTab,
@@ -112,7 +112,7 @@ void main() {
     (tester) async {
       final p = _Page(tester);
       await p.pump();
-      expect(find.text('lenovo'), findsWidgets);
+      expect(find.text('winbox'), findsWidgets);
       expect(find.text('Connected'), findsOneWidget);
       expect(find.text('Terminal'), findsOneWidget);
       expect(find.text('Files'), findsOneWidget);
@@ -204,7 +204,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       await tester.tap(find.text('Open in VS Code'));
       await tester.pump();
-      expect(p.events, ['code:/C:/Users/dhiva/Documents']);
+      expect(p.events, ['code:/C:/Users/alex/Documents']);
     },
   );
 
@@ -222,7 +222,7 @@ void main() {
 
       p.session.set(ConnectionPhase.connecting);
       await tester.pump();
-      expect(find.textContaining('Reconnecting to lenovo'), findsOneWidget);
+      expect(find.textContaining('Reconnecting to winbox'), findsOneWidget);
 
       p.session.set(ConnectionPhase.failed, 'No route to host');
       await tester.pump();
@@ -246,7 +246,7 @@ void main() {
     // The real controller is used here (no session hook), so the failure
     // is the one connect() threw.
     await tester.pump(const Duration(milliseconds: 100));
-    expect(find.text('Could not connect to lenovo'), findsOneWidget);
+    expect(find.text('Could not connect to winbox'), findsOneWidget);
     expect(find.textContaining('Connection refused'), findsOneWidget);
     expect(attempts, 1);
     await tester.tap(find.text('Try again'));

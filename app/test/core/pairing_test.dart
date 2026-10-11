@@ -10,15 +10,15 @@ import 'package:flutter_test/flutter_test.dart';
 
 // Real keys so payload validation passes.
 const _edKey =
-    'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKKkY2WKzNp7LwHoUGCJxBB8MQrtp5MT5TMJtJ0xR0AU';
+    'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIZ/uAgXTIgSDXu5KtVkuyWBxnR2ae0aN4E/XCSDExpx';
 const _edKey2 =
     'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILGgJ19ugqnNH/jujnX9q/Xw1FzEAFi0hmISmyY/L9UF';
 
 PairingPayload payload(String name, String os) => PairingPayload(
-  sshUser: name == 'lenovo' ? 'dhiva' : 'dev user',
+  sshUser: name == 'winbox' ? 'alex' : 'dev user',
   sshPort: 22,
   hostKeys: [_edKey],
-  clientKey: name == 'lenovo' ? _edKey : _edKey2,
+  clientKey: name == 'winbox' ? _edKey : _edKey2,
   name: name,
   os: os,
 );
@@ -30,7 +30,7 @@ final linuxId = PeerIdentity(
 );
 final winId = PeerIdentity(
   id: 'bbbbbbbb-2222-4222-8222-222222222222',
-  name: 'lenovo',
+  name: 'winbox',
   os: 'windows',
 );
 
@@ -53,7 +53,7 @@ Future<_Run> _pair({
     respondToPairing(
       socket: sock,
       me: winId,
-      myPayload: payload('lenovo', 'windows'),
+      myPayload: payload('winbox', 'windows'),
       confirm: (p) async {
         expect(p.incoming, isTrue);
         expect(p.peer.name, 'desk');
@@ -92,7 +92,7 @@ void main() {
     expect(r.codes[0], r.codes[1]);
     expect(r.codes[0], matches(RegExp(r'^\d{3} \d{3}$')));
     expect(a.peer.id, winId.id);
-    expect(a.payload.sshUser, 'dhiva');
+    expect(a.payload.sshUser, 'alex');
     expect(a.payload.os, 'windows');
     expect(b.peer.id, linuxId.id);
     expect(b.payload.sshUser, 'dev user');
@@ -135,7 +135,7 @@ void main() {
       (sock) => respondToPairing(
         socket: sock,
         me: winId,
-        myPayload: payload('lenovo', 'windows'),
+        myPayload: payload('winbox', 'windows'),
         confirm: (_) async => fail('must not reach the code prompt'),
         apply: (_, _, _) async => fail('must not apply'),
       ),

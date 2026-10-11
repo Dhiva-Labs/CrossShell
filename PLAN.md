@@ -96,9 +96,9 @@ Own host key: `ssh-keyscan -t ed25519,ecdsa,rsa -p <port> 127.0.0.1`
 ### Peer record
 
 ```json
-{"id":"…","name":"lenovo","os":"windows","alias":"lenovo",
- "sshUser":"dhiva","sshPort":22,"hostKeys":["ssh-ed25519 AAAA…"],
- "clientKey":"ssh-ed25519 AAAA… crossshell:<id>","lastIp":"192.168.0.129",
+{"id":"…","name":"winbox","os":"windows","alias":"winbox",
+ "sshUser":"alex","sshPort":22,"hostKeys":["ssh-ed25519 AAAA…"],
+ "clientKey":"ssh-ed25519 AAAA… crossshell:<id>","lastIp":"192.168.1.20",
  "pairedAt":"2026-10-11T12:00:00Z","hostAgent":{"path":"…"}}
 ```
 
@@ -108,7 +108,7 @@ Every 3 s (and immediately on start / network change) each running app
 broadcasts to 255.255.255.255 and each interface's directed broadcast:
 
 ```json
-{"cs":1,"id":"<uuid>","name":"lenovo","os":"windows","user":"dhiva",
+{"cs":1,"id":"<uuid>","name":"winbox","os":"windows","user":"alex",
  "sshPort":22,"pairPort":47820,"ver":"0.1.0"}
 ```
 

@@ -10,14 +10,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'helpers/fake_fs.dart';
 
 FakeFs windowsPeer() =>
-    FakeFs(const SftpWindowsPathStyle(), home: '/C:/Users/dhiva')
-      ..addDir('/C:/Users/dhiva/Documents')
-      ..addDir('/C:/Users/dhiva/Projects')
-      ..addFile('/C:/Users/dhiva/notes.txt', 'n' * 1500)
-      ..addFile('/C:/Users/dhiva/readme.md', 'hello')
-      ..addFile('/C:/Users/dhiva/file2.txt', '2')
-      ..addFile('/C:/Users/dhiva/file10.txt', '10')
-      ..addFile('/C:/Users/dhiva/.hidden', 'x')
+    FakeFs(const SftpWindowsPathStyle(), home: '/C:/Users/alex')
+      ..addDir('/C:/Users/alex/Documents')
+      ..addDir('/C:/Users/alex/Projects')
+      ..addFile('/C:/Users/alex/notes.txt', 'n' * 1500)
+      ..addFile('/C:/Users/alex/readme.md', 'hello')
+      ..addFile('/C:/Users/alex/file2.txt', '2')
+      ..addFile('/C:/Users/alex/file10.txt', '10')
+      ..addFile('/C:/Users/alex/.hidden', 'x')
       ..addDir('/D:/data');
 
 class _Calls {
@@ -140,7 +140,7 @@ void main() {
       expect(find.text('Drives'), findsOneWidget);
       expect(find.text('C:'), findsOneWidget);
       expect(find.text('Users'), findsOneWidget);
-      expect(find.text('dhiva'), findsOneWidget);
+      expect(find.text('alex'), findsOneWidget);
     },
   );
 
@@ -166,13 +166,13 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
     await tester.tap(find.text('notes.txt'));
     await tester.pump(const Duration(milliseconds: 50));
-    expect(h.controller.cwd, '/C:/Users/dhiva');
+    expect(h.controller.cwd, '/C:/Users/alex');
 
     await tester.tap(find.text('Documents'));
     await tester.pump(const Duration(milliseconds: 50));
     await tester.tap(find.text('Documents'));
     await tester.pumpAndSettle();
-    expect(h.controller.cwd, '/C:/Users/dhiva/Documents');
+    expect(h.controller.cwd, '/C:/Users/alex/Documents');
     expect(find.text('Empty folder'), findsOneWidget);
   });
 
@@ -194,10 +194,10 @@ void main() {
 
     await h.key(LogicalKeyboardKey.enter);
     await tester.pumpAndSettle();
-    expect(h.controller.cwd, '/C:/Users/dhiva/Documents');
+    expect(h.controller.cwd, '/C:/Users/alex/Documents');
     await h.key(LogicalKeyboardKey.backspace);
     await tester.pumpAndSettle();
-    expect(h.controller.cwd, '/C:/Users/dhiva');
+    expect(h.controller.cwd, '/C:/Users/alex');
 
     await h.key(LogicalKeyboardKey.keyR);
     expect(h.selected, [
@@ -260,8 +260,8 @@ void main() {
     await tester.enterText(find.byType(TextField).last, 'README.txt');
     await tester.tap(find.widgetWithText(FilledButton, 'Rename'));
     await tester.pumpAndSettle();
-    expect(h.fs.exists('/C:/Users/dhiva/README.txt'), isTrue);
-    expect(h.fs.exists('/C:/Users/dhiva/readme.md'), isFalse);
+    expect(h.fs.exists('/C:/Users/alex/README.txt'), isTrue);
+    expect(h.fs.exists('/C:/Users/alex/readme.md'), isFalse);
     expect(h.selected, ['README.txt']);
 
     // A name that already exists is reported inline, not swallowed.
@@ -283,7 +283,7 @@ void main() {
     await tester.enterText(find.byType(TextField).last, 'New Stuff');
     await tester.tap(find.widgetWithText(FilledButton, 'Create'));
     await tester.pumpAndSettle();
-    expect(h.fs.exists('/C:/Users/dhiva/New Stuff'), isTrue);
+    expect(h.fs.exists('/C:/Users/alex/New Stuff'), isTrue);
     expect(h.selected, ['New Stuff']);
   });
 
@@ -300,7 +300,7 @@ void main() {
     expect(field, findsOneWidget);
     expect(
       (tester.widget(field) as TextField).controller!.text,
-      '/C:/Users/dhiva',
+      '/C:/Users/alex',
     );
     await tester.enterText(field, r'D:\data');
     await tester.testTextInput.receiveAction(TextInputAction.done);
@@ -427,7 +427,7 @@ void main() {
       'a.txt',
       'b.txt',
     }, reason: 'the whole selection travels');
-    expect(rcalls.drops.single.$2, '/C:/Users/dhiva');
+    expect(rcalls.drops.single.$2, '/C:/Users/alex');
     expect(lcalls.drops, isEmpty);
 
     // Drop onto a folder row of the right pane: lands inside that folder.
@@ -443,7 +443,7 @@ void main() {
     await drag2.up();
     await tester.pumpAndSettle();
     expect(rcalls.drops.last.$1, ['dir']);
-    expect(rcalls.drops.last.$2, '/C:/Users/dhiva/Projects');
+    expect(rcalls.drops.last.$2, '/C:/Users/alex/Projects');
   });
 
   testWidgets('dropping a pane\'s own selection back on itself does nothing', (

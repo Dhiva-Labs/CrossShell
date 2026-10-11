@@ -55,18 +55,18 @@ void main() {
     const s = SftpWindowsPathStyle();
 
     test('recognises the server grammar', () {
-      expect(SftpWindowsPathStyle.looksLikeWindows('/C:/Users/dhiva'), isTrue);
+      expect(SftpWindowsPathStyle.looksLikeWindows('/C:/Users/alex'), isTrue);
       expect(SftpWindowsPathStyle.looksLikeWindows('/C:'), isTrue);
       expect(SftpWindowsPathStyle.looksLikeWindows('C:\\Users'), isTrue);
-      expect(SftpWindowsPathStyle.looksLikeWindows('/home/dhiva'), isFalse);
+      expect(SftpWindowsPathStyle.looksLikeWindows('/home/alex'), isFalse);
       expect(SftpWindowsPathStyle.looksLikeWindows('/'), isFalse);
       expect(SftpWindowsPathStyle.looksLikeWindows('/CD:/x'), isFalse);
     });
 
     test('normalize keeps the drive as the first segment', () {
-      expect(s.normalize('/C:/Users/dhiva'), '/C:/Users/dhiva');
-      expect(s.normalize('/C:/Users/dhiva/'), '/C:/Users/dhiva');
-      expect(s.normalize('/C:/Users/../dhiva'), '/C:/dhiva');
+      expect(s.normalize('/C:/Users/alex'), '/C:/Users/alex');
+      expect(s.normalize('/C:/Users/alex/'), '/C:/Users/alex');
+      expect(s.normalize('/C:/Users/../alex'), '/C:/alex');
     });
 
     test('drive roots are canonical with a trailing slash', () {
@@ -78,17 +78,17 @@ void main() {
     });
 
     test('accepts what a user would type', () {
-      expect(s.normalize(r'C:\Users\dhiva'), '/C:/Users/dhiva');
+      expect(s.normalize(r'C:\Users\alex'), '/C:/Users/alex');
       expect(s.normalize(r'c:\dev\crossshell'), '/C:/dev/crossshell');
       expect(s.resolveInput(r'D:\data', '/C:/Users'), '/D:/data');
       expect(
-        s.resolveInput('Documents', '/C:/Users/dhiva'),
-        '/C:/Users/dhiva/Documents',
+        s.resolveInput('Documents', '/C:/Users/alex'),
+        '/C:/Users/alex/Documents',
       );
-      expect(s.resolveInput('..', '/C:/Users/dhiva'), '/C:/Users');
+      expect(s.resolveInput('..', '/C:/Users/alex'), '/C:/Users');
       expect(
-        s.resolveInput('~', '/C:/x', home: '/C:/Users/dhiva'),
-        '/C:/Users/dhiva',
+        s.resolveInput('~', '/C:/x', home: '/C:/Users/alex'),
+        '/C:/Users/alex',
       );
     });
 
@@ -103,29 +103,29 @@ void main() {
     test('join onto the drive list yields a drive root', () {
       expect(s.join('/', 'C:'), '/C:/');
       expect(s.join('/C:/', 'Users'), '/C:/Users');
-      expect(s.join('/C:/Users', 'dhiva'), '/C:/Users/dhiva');
+      expect(s.join('/C:/Users', 'alex'), '/C:/Users/alex');
       expect(s.join('/C:/Users', '/D:/x'), '/D:/x');
       expect(s.join('/C:/Users', r'D:\x'), '/D:/x');
     });
 
     test('basename of a drive is its letter', () {
       expect(s.basename('/C:/'), 'C:');
-      expect(s.basename('/C:/Users/dhiva'), 'dhiva');
+      expect(s.basename('/C:/Users/alex'), 'alex');
       expect(s.basename('/'), '');
     });
 
     test('breadcrumbs start at the drive list', () {
-      expect(s.breadcrumbs('/C:/Users/dhiva'), const [
+      expect(s.breadcrumbs('/C:/Users/alex'), const [
         PathCrumb('Drives', '/'),
         PathCrumb('C:', '/C:/'),
         PathCrumb('Users', '/C:/Users'),
-        PathCrumb('dhiva', '/C:/Users/dhiva'),
+        PathCrumb('alex', '/C:/Users/alex'),
       ]);
       expect(s.breadcrumbs('/'), const [PathCrumb('Drives', '/')]);
     });
 
     test('isWithin ignores case', () {
-      expect(s.isWithin('/C:/Users', '/c:/users/dhiva'), isTrue);
+      expect(s.isWithin('/C:/Users', '/c:/users/alex'), isTrue);
       expect(s.isWithin('/C:/Users', '/C:/UsersX'), isFalse);
       expect(s.isWithin('/C:/', '/C:/a'), isTrue);
     });

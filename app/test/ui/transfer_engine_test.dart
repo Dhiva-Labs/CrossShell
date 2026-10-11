@@ -30,7 +30,7 @@ void main() {
       final src = FakeFs(const PosixPathStyle())
         ..addFile('/home/a/hello.txt', 'hello world!');
       final dst = FakeFs(const SftpWindowsPathStyle())
-        ..addDir('/C:/Users/dhiva');
+        ..addDir('/C:/Users/alex');
       final item = (await src.stat('/home/a/hello.txt'))!;
       final t = await run(
         q,
@@ -38,11 +38,11 @@ void main() {
           from: src,
           to: dst,
           items: [CopyItem(item)],
-          destDir: '/C:/Users/dhiva',
+          destDir: '/C:/Users/alex',
         ),
       );
       expect(t.status, TaskStatus.completed, reason: t.error);
-      expect(dst.text('/C:/Users/dhiva/hello.txt'), 'hello world!');
+      expect(dst.text('/C:/Users/alex/hello.txt'), 'hello world!');
       expect(t.doneBytes, 12);
       expect(t.totalBytes, 12);
     });

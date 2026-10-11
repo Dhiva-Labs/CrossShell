@@ -9,15 +9,15 @@ import 'package:cross_shell/src/core/ssh/sshd.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const ed =
-    'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKKkY2WKzNp7LwHoUGCJxBB8MQrtp5MT5TMJtJ0xR0AU';
+    'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIZ/uAgXTIgSDXu5KtVkuyWBxnR2ae0aN4E/XCSDExpx';
 const id1 = 'aaaaaaaa-1111-4111-8111-111111111111';
 const id2 = 'bbbbbbbb-2222-4222-8222-222222222222';
 
-PeerSshEntry entry(String id, String alias, {String user = 'dhiva'}) =>
+PeerSshEntry entry(String id, String alias, {String user = 'alex'}) =>
     PeerSshEntry(
       peerId: id,
       alias: alias,
-      host: '192.168.0.129',
+      host: '192.168.1.20',
       port: 22,
       user: user,
     );
@@ -25,16 +25,16 @@ PeerSshEntry entry(String id, String alias, {String user = 'dhiva'}) =>
 void main() {
   group('ssh config', () {
     test('blocks upsert, replace and remove without touching other text', () {
-      var c = upsertPeerBlock('', entry(id1, 'lenovo'));
-      expect(c, contains('Host lenovo\n'));
+      var c = upsertPeerBlock('', entry(id1, 'winbox'));
+      expect(c, contains('Host winbox\n'));
       expect(c, contains('HostKeyAlias crossshell-$id1'));
       expect(c, contains('StrictHostKeyChecking yes'));
       c = upsertPeerBlock(c, entry(id2, 'desk'));
-      c = upsertPeerBlock(c, entry(id1, 'lenovo', user: 'John Smith'));
-      expect('Host lenovo'.allMatches(c), hasLength(1));
+      c = upsertPeerBlock(c, entry(id1, 'winbox', user: 'John Smith'));
+      expect('Host winbox'.allMatches(c), hasLength(1));
       expect(c, contains('User "John Smith"'));
       c = removePeerBlock(c, id1);
-      expect(c, isNot(contains('lenovo')));
+      expect(c, isNot(contains('winbox')));
       expect(c, contains('Host desk'));
     });
 
@@ -115,9 +115,9 @@ void main() {
 
   group('aliases', () {
     test('are ssh-friendly and unique', () {
-      expect(makeAlias('LENOVO', []), 'lenovo');
+      expect(makeAlias('WINBOX', []), 'winbox');
       expect(makeAlias('My PC!', []), 'my-pc');
-      expect(makeAlias('lenovo', ['lenovo', 'lenovo-2']), 'lenovo-3');
+      expect(makeAlias('winbox', ['winbox', 'winbox-2']), 'winbox-3');
       expect(makeAlias('***', []), 'peer');
     });
   });

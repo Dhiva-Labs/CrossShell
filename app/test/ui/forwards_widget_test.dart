@@ -64,7 +64,7 @@ class _Rig {
       MaterialApp(
         theme: buildLightTheme(),
         home: Scaffold(
-          body: ForwardsTab(manager: manager, peerTitle: 'lenovo'),
+          body: ForwardsTab(manager: manager, peerTitle: 'winbox'),
         ),
       ),
     );
@@ -118,7 +118,7 @@ void main() {
     expect(rt.rule.kind, ForwardKind.remote);
     expect(rt.rule.bindHost, 'localhost');
     expect(find.text('Port 8080 (reverse)'), findsOneWidget);
-    expect(find.textContaining('Listens on lenovo'), findsOneWidget);
+    expect(find.textContaining('Listens on winbox'), findsOneWidget);
     await tester.runAsync(r.manager.stopAll);
   });
 

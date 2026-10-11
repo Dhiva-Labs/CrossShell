@@ -44,6 +44,24 @@ build box (or any mix of Linux and Windows machines) on the same network:
 
 See [PLAN.md](PLAN.md) for the full design, wire protocol and pairing spec.
 
+## Install
+
+Download from the [releases page](https://github.com/Dhiva-Labs/CrossShell/releases):
+
+- **Linux (x64):** `crossshell-<ver>-linux-x64.tar.gz`. Extract it and run
+  `./cross_shell`. You need the OpenSSH client (`ssh`, `ssh-keygen`) and
+  GTK 3. Screen sharing uses PipeWire, which any current desktop has.
+- **Windows 10/11 (x64):** `crossshell-<ver>-windows-x64.zip`. Extract it
+  and run `cross_shell.exe`. The OpenSSH client ships with Windows; the app
+  can install OpenSSH Server for you.
+
+> **The builds are not code-signed yet.** On Windows, SmartScreen will warn
+> on first launch. If **Smart App Control** is on, it may block
+> `cross_shell.exe` or the screen-share agent `crossshell-host.exe`. The
+> app tells you when that happens. Signed releases are planned.
+
+Verify downloads with `SHA256SUMS`.
+
 ## Use it
 
 1. Install and open CrossShell on both machines.
@@ -59,7 +77,7 @@ See [PLAN.md](PLAN.md) for the full design, wire protocol and pairing spec.
 From any terminal afterwards:
 
 ```bash
-ssh lenovo
+ssh winbox
 ```
 
 ## Limits (honest list)

@@ -1,7 +1,7 @@
 // Development entrypoint for the connected-peer session UI. Not part of the
 // shipped app.
 //
-//   CS_DEV_HOST=192.168.0.129 CS_DEV_USER=dhiva CS_DEV_KEY=~/.ssh/id_ed25519 \
+//   CS_DEV_HOST=192.168.1.20 CS_DEV_USER=alex CS_DEV_KEY=~/.ssh/id_ed25519 \
 //   CS_DEV_OS=windows flutter run -d linux -t lib/dev/session_dev_main.dart
 //
 // Optional: CS_DEV_PORT, CS_DEV_TITLE, CS_DEV_TAB=terminal|files|forwards,
@@ -161,7 +161,7 @@ class _MissingConfig extends StatelessWidget {
       body: Center(
         child: SelectableText(
           'Set CS_DEV_HOST (and CS_DEV_USER, CS_DEV_KEY, CS_DEV_OS) to connect.\n\n'
-          'CS_DEV_HOST=192.168.0.129 CS_DEV_USER=dhiva CS_DEV_OS=windows \\\n'
+          'CS_DEV_HOST=192.168.1.20 CS_DEV_USER=alex CS_DEV_OS=windows \\\n'
           '  flutter run -d linux -t lib/dev/session_dev_main.dart',
           textAlign: TextAlign.center,
         ),

@@ -1,7 +1,7 @@
 // Exercises the real code paths against a real peer. Skipped unless
 // CS_DEV_HOST is set:
 //
-//   CS_DEV_HOST=192.168.0.129 CS_DEV_USER=dhiva \
+//   CS_DEV_HOST=192.168.1.20 CS_DEV_USER=alex \
 //     CS_DEV_KEY=~/.ssh/id_ed25519 CS_DEV_OS=windows \
 //     flutter test test/ui/live_peer_test.dart
 //
@@ -45,7 +45,7 @@ Future<SSHClient> connect() async {
   ).readAsStringSync();
   final client = SSHClient(
     socket,
-    username: env['CS_DEV_USER'] ?? 'dhiva',
+    username: env['CS_DEV_USER'] ?? 'alex',
     identities: SSHKeyPair.fromPem(key),
     algorithms: fastSshAlgorithms,
     // Test only: the real app pins host keys at pairing.

@@ -92,7 +92,7 @@ class TransferTask {
   /// "photos" or "3 items".
   final String title;
 
-  /// "This computer -> lenovo:/C:/Users/dhiva".
+  /// "This computer -> winbox:/C:/Users/alex".
   final String subtitle;
   final TaskRunner runner;
   final DateTime queuedAt;

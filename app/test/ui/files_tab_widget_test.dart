@@ -37,12 +37,12 @@ class _Rig {
     remote =
         FakeFs(
             const SftpWindowsPathStyle(),
-            home: '/C:/Users/dhiva',
-            label: 'lenovo',
+            home: '/C:/Users/alex',
+            label: 'winbox',
           )
-          ..addDir('/C:/Users/dhiva/Documents')
-          ..addFile('/C:/Users/dhiva/hello.txt', 'hi from windows')
-          ..addFile('/C:/Users/dhiva/builds/app.exe', 'MZ....')
+          ..addDir('/C:/Users/alex/Documents')
+          ..addFile('/C:/Users/alex/hello.txt', 'hi from windows')
+          ..addFile('/C:/Users/alex/builds/app.exe', 'MZ....')
           ..addDir('/D:/data');
     session = _ConnectedSession();
   }
@@ -62,7 +62,7 @@ class _Rig {
         home: Scaffold(
           body: FilesTab(
             session: session,
-            peerTitle: 'lenovo',
+            peerTitle: 'winbox',
             os: RemoteOs.windows,
             visible: true,
             localBackend: local,
@@ -106,7 +106,7 @@ void main() {
       expect(r.row('hello.txt', remotePane: true), findsOneWidget);
       expect(r.row('Documents', remotePane: true), findsOneWidget);
       expect(find.text('Drives'), findsOneWidget);
-      expect(find.text('lenovo'), findsWidgets);
+      expect(find.text('winbox'), findsWidgets);
     },
   );
 
@@ -116,9 +116,9 @@ void main() {
     final r = _Rig(tester);
     await r.pump();
     await r.click(r.row('report.txt', remotePane: false));
-    await tester.tap(find.byTooltip('Upload selected to lenovo'));
+    await tester.tap(find.byTooltip('Upload selected to winbox'));
     await r.settle();
-    expect(r.remote.text('/C:/Users/dhiva/report.txt'), 'quarterly numbers');
+    expect(r.remote.text('/C:/Users/alex/report.txt'), 'quarterly numbers');
     // The finished upload shows up in the remote pane without a manual refresh.
     expect(r.row('report.txt', remotePane: true), findsOneWidget);
     expect(find.textContaining('1 transfer done'), findsOneWidget);
@@ -130,14 +130,14 @@ void main() {
     final r = _Rig(tester);
     await r.pump();
     await r.click(r.row('proj', remotePane: false));
-    await tester.tap(find.byTooltip('Upload selected to lenovo'));
+    await tester.tap(find.byTooltip('Upload selected to winbox'));
     await r.settle();
     expect(
-      r.remote.text('/C:/Users/dhiva/proj/src/main.dart'),
+      r.remote.text('/C:/Users/alex/proj/src/main.dart'),
       'void main() {}',
     );
-    expect(r.remote.text('/C:/Users/dhiva/proj/README.md'), '# proj');
-    expect(r.remote.exists('/C:/Users/dhiva/proj/empty'), isTrue);
+    expect(r.remote.text('/C:/Users/alex/proj/README.md'), '# proj');
+    expect(r.remote.exists('/C:/Users/alex/proj/empty'), isTrue);
   });
 
   testWidgets('download button copies the peer\'s folder to the local folder', (
@@ -171,7 +171,7 @@ void main() {
       await tester.pump();
       await g.up();
       await r.settle();
-      expect(r.remote.text('/C:/Users/dhiva/Documents/photo.png'), 'PNGDATA');
+      expect(r.remote.text('/C:/Users/alex/Documents/photo.png'), 'PNGDATA');
 
       // And from the peer back to the local folder (empty area of the pane).
       final back = tester.getCenter(r.row('hello.txt', remotePane: true));
@@ -192,17 +192,17 @@ void main() {
     tester,
   ) async {
     final r = _Rig(tester);
-    r.remote.addFile('/C:/Users/dhiva/report.txt', 'OLD REMOTE');
+    r.remote.addFile('/C:/Users/alex/report.txt', 'OLD REMOTE');
     await r.pump();
     await r.click(r.row('report.txt', remotePane: false));
-    await tester.tap(find.byTooltip('Upload selected to lenovo'));
+    await tester.tap(find.byTooltip('Upload selected to winbox'));
     await tester.pumpAndSettle();
     expect(find.text('Already exists'), findsOneWidget);
     await tester.tap(find.text('Keep both'));
     await r.settle();
-    expect(r.remote.text('/C:/Users/dhiva/report.txt'), 'OLD REMOTE');
+    expect(r.remote.text('/C:/Users/alex/report.txt'), 'OLD REMOTE');
     expect(
-      r.remote.text('/C:/Users/dhiva/report (1).txt'),
+      r.remote.text('/C:/Users/alex/report (1).txt'),
       'quarterly numbers',
     );
   });
@@ -211,27 +211,27 @@ void main() {
     tester,
   ) async {
     final r = _Rig(tester);
-    r.remote.addFile('/C:/Users/dhiva/report.txt', 'OLD REMOTE');
+    r.remote.addFile('/C:/Users/alex/report.txt', 'OLD REMOTE');
     await r.pump();
     await r.click(r.row('report.txt', remotePane: false));
 
-    await tester.tap(find.byTooltip('Upload selected to lenovo'));
+    await tester.tap(find.byTooltip('Upload selected to winbox'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Cancel'));
     await r.settle();
-    expect(r.remote.text('/C:/Users/dhiva/report.txt'), 'OLD REMOTE');
+    expect(r.remote.text('/C:/Users/alex/report.txt'), 'OLD REMOTE');
 
-    await tester.tap(find.byTooltip('Upload selected to lenovo'));
+    await tester.tap(find.byTooltip('Upload selected to winbox'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Skip'));
     await r.settle();
-    expect(r.remote.text('/C:/Users/dhiva/report.txt'), 'OLD REMOTE');
+    expect(r.remote.text('/C:/Users/alex/report.txt'), 'OLD REMOTE');
 
-    await tester.tap(find.byTooltip('Upload selected to lenovo'));
+    await tester.tap(find.byTooltip('Upload selected to winbox'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Replace'));
     await r.settle();
-    expect(r.remote.text('/C:/Users/dhiva/report.txt'), 'quarterly numbers');
+    expect(r.remote.text('/C:/Users/alex/report.txt'), 'quarterly numbers');
   });
 
   testWidgets('Ctrl+C in one pane, Tab, Ctrl+V in the other transfers', (
@@ -254,7 +254,7 @@ void main() {
     await tester.sendKeyUpEvent(LogicalKeyboardKey.keyV);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     await r.settle();
-    expect(r.remote.text('/C:/Users/dhiva/photo.png'), 'PNGDATA');
+    expect(r.remote.text('/C:/Users/alex/photo.png'), 'PNGDATA');
   });
 
   testWidgets(
@@ -288,15 +288,15 @@ void main() {
 
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
-      expect(r.remote.exists('/C:/Users/dhiva/builds'), isTrue);
+      expect(r.remote.exists('/C:/Users/alex/builds'), isTrue);
 
       await tester.sendKeyEvent(LogicalKeyboardKey.delete);
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
       await r.settle();
-      expect(r.remote.exists('/C:/Users/dhiva/builds'), isFalse);
-      expect(r.remote.exists('/C:/Users/dhiva/builds/app.exe'), isFalse);
-      expect(r.remote.exists('/C:/Users/dhiva/hello.txt'), isTrue);
+      expect(r.remote.exists('/C:/Users/alex/builds'), isFalse);
+      expect(r.remote.exists('/C:/Users/alex/builds/app.exe'), isFalse);
+      expect(r.remote.exists('/C:/Users/alex/hello.txt'), isTrue);
     },
   );
 
@@ -313,7 +313,7 @@ void main() {
     }
     expect(r.row('C:', remotePane: true), findsOneWidget);
     await r.click(r.row('photo.png', remotePane: false));
-    await tester.tap(find.byTooltip('Upload selected to lenovo'));
+    await tester.tap(find.byTooltip('Upload selected to winbox'));
     await tester.pumpAndSettle();
     expect(find.textContaining('Open a drive or folder first'), findsOneWidget);
   });
@@ -325,11 +325,11 @@ void main() {
     r.local.failReads.add('/home/me/report.txt');
     await r.pump();
     await r.click(r.row('report.txt', remotePane: false));
-    await tester.tap(find.byTooltip('Upload selected to lenovo'));
+    await tester.tap(find.byTooltip('Upload selected to winbox'));
     await r.settle();
     expect(find.textContaining('read failed'), findsWidgets);
     expect(find.textContaining('1 transfer failed'), findsOneWidget);
-    expect(r.remote.exists('/C:/Users/dhiva/report.txt'), isFalse);
+    expect(r.remote.exists('/C:/Users/alex/report.txt'), isFalse);
   });
 
   testWidgets(
@@ -339,8 +339,8 @@ void main() {
       addTearDown(session.dispose);
       final first = FakeFs(
         const SftpWindowsPathStyle(),
-        home: '/C:/Users/dhiva',
-      )..addFile('/C:/Users/dhiva/before.txt', 'x');
+        home: '/C:/Users/alex',
+      )..addFile('/C:/Users/alex/before.txt', 'x');
       var current = first;
       final local = FakeFs(const PosixPathStyle(), home: '/home/me')
         ..addFile('/home/me/a', 'a');
@@ -353,7 +353,7 @@ void main() {
           home: Scaffold(
             body: FilesTab(
               session: session,
-              peerTitle: 'lenovo',
+              peerTitle: 'winbox',
               os: RemoteOs.windows,
               visible: true,
               localBackend: local,
@@ -369,22 +369,22 @@ void main() {
 
       session.set(ConnectionPhase.lost, 'wifi dropped');
       await tester.pump();
-      expect(find.textContaining('Connection to lenovo lost'), findsOneWidget);
+      expect(find.textContaining('Connection to winbox lost'), findsOneWidget);
       expect(
         find.text('before.txt'),
         findsOneWidget,
         reason: 'the last listing stays readable',
       );
 
-      current = FakeFs(const SftpWindowsPathStyle(), home: '/C:/Users/dhiva')
-        ..addFile('/C:/Users/dhiva/after.txt', 'y');
+      current = FakeFs(const SftpWindowsPathStyle(), home: '/C:/Users/alex')
+        ..addFile('/C:/Users/alex/after.txt', 'y');
       session.reconnected();
       for (var i = 0; i < 10; i++) {
         await tester.pump(const Duration(milliseconds: 20));
       }
       expect(find.text('after.txt'), findsOneWidget);
       expect(find.text('before.txt'), findsNothing);
-      expect(find.textContaining('Connection to lenovo lost'), findsNothing);
+      expect(find.textContaining('Connection to winbox lost'), findsNothing);
     },
   );
 
@@ -394,8 +394,8 @@ void main() {
       final r = _Rig(tester);
       // Dropping onto Documents, which already holds report.txt and report (1).txt.
       r.remote
-        ..addFile('/C:/Users/dhiva/Documents/report.txt', 'OLD')
-        ..addFile('/C:/Users/dhiva/Documents/report (1).txt', 'OLD1');
+        ..addFile('/C:/Users/alex/Documents/report.txt', 'OLD')
+        ..addFile('/C:/Users/alex/Documents/report (1).txt', 'OLD1');
       await r.pump();
       final from = tester.getCenter(r.row('report.txt', remotePane: false));
       final g = await tester.startGesture(from, kind: PointerDeviceKind.mouse);
@@ -409,10 +409,10 @@ void main() {
       expect(find.text('Already exists'), findsOneWidget);
       await tester.tap(find.text('Keep both'));
       await r.settle();
-      expect(r.remote.text('/C:/Users/dhiva/Documents/report.txt'), 'OLD');
-      expect(r.remote.text('/C:/Users/dhiva/Documents/report (1).txt'), 'OLD1');
+      expect(r.remote.text('/C:/Users/alex/Documents/report.txt'), 'OLD');
+      expect(r.remote.text('/C:/Users/alex/Documents/report (1).txt'), 'OLD1');
       expect(
-        r.remote.text('/C:/Users/dhiva/Documents/report (2).txt'),
+        r.remote.text('/C:/Users/alex/Documents/report (2).txt'),
         'quarterly numbers',
       );
     },
@@ -424,8 +424,8 @@ void main() {
     final r = _Rig(tester);
     r.local.addFile('/home/me/.rc', 'new');
     r.remote
-      ..addFile('/C:/Users/dhiva/.rc', 'old')
-      ..addFile('/C:/Users/dhiva/.rc (1)', 'old1');
+      ..addFile('/C:/Users/alex/.rc', 'old')
+      ..addFile('/C:/Users/alex/.rc (1)', 'old1');
     await r.pump();
     // Show the local dotfile, select it and send it over.
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
@@ -433,12 +433,12 @@ void main() {
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     await tester.pump();
     await r.click(r.row('.rc', remotePane: false));
-    await tester.tap(find.byTooltip('Upload selected to lenovo'));
+    await tester.tap(find.byTooltip('Upload selected to winbox'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Keep both'));
     await r.settle();
-    expect(r.remote.text('/C:/Users/dhiva/.rc'), 'old');
-    expect(r.remote.text('/C:/Users/dhiva/.rc (1)'), 'old1');
-    expect(r.remote.text('/C:/Users/dhiva/.rc (2)'), 'new');
+    expect(r.remote.text('/C:/Users/alex/.rc'), 'old');
+    expect(r.remote.text('/C:/Users/alex/.rc (1)'), 'old1');
+    expect(r.remote.text('/C:/Users/alex/.rc (2)'), 'new');
   });
 }

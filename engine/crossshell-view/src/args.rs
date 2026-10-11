@@ -136,7 +136,7 @@ mod tests {
             "--port",
             "9",
             "--title",
-            "lenovo",
+            "winbox",
             "--view-only",
             "--quality",
             "2",
@@ -151,7 +151,7 @@ mod tests {
             "--no-clipboard",
         ])
         .unwrap();
-        assert_eq!(a.title, "lenovo");
+        assert_eq!(a.title, "winbox");
         assert!(a.view_only && !a.clipboard);
         assert_eq!((a.quality, a.fps, a.display, a.frames), (2, 60, 1, 5));
         assert_eq!(a.snapshot, Some(PathBuf::from("x.png")));
