@@ -28,3 +28,6 @@ crossshell-platform-windows = { path = "../platform-windows" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 crossshell-platform-linux = { path = "../platform-linux" }
+
+[dev-dependencies]
+png = "0.18.1"

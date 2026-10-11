@@ -2,3 +2,4 @@ engine/target/
 *.snap
 /dist/
 .claude/
+engine/target*/
