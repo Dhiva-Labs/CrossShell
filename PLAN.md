@@ -53,13 +53,13 @@ Per machine, in the app support dir (`~/.local/share/cross_shell` on Linux,
 - `device.json` — `{id: uuid-v4, name: hostname}`
 - `peers.json` — paired peers (see Peer record)
 
-SSH material (shared with the system `ssh` client):
+SSH material (shared with the system `ssh` client), all under `~/.ssh/crossshell/`:
 
-- `~/.ssh/crossshell_ed25519{,.pub}` — this machine's client key, made with
+- `id_ed25519{,.pub}` — this machine's client key, made with
   `ssh-keygen -t ed25519 -N "" -C crossshell@<hostname>`.
-- `~/.ssh/crossshell_known_hosts` — pinned host keys, one line per peer:
+- `known_hosts` — pinned host keys, one line per key:
   `crossshell-<peer-id> <keytype> <base64>`.
-- `~/.ssh/config` — one managed block per peer:
+- `config` — one managed block per peer, wholly owned by CrossShell:
 
 ```
 # >>> crossshell peer <peer-id> >>>
@@ -67,16 +67,20 @@ Host <alias>
   HostName <last-seen-ip>
   Port <ssh-port>
   User <ssh-user>
-  IdentityFile ~/.ssh/crossshell_ed25519
+  IdentityFile ~/.ssh/crossshell/id_ed25519
   IdentitiesOnly yes
   HostKeyAlias crossshell-<peer-id>
-  UserKnownHostsFile ~/.ssh/crossshell_known_hosts
+  UserKnownHostsFile ~/.ssh/crossshell/known_hosts
   StrictHostKeyChecking yes
+  ServerAliveInterval 15
 # <<< crossshell peer <peer-id> <<<
 ```
 
-`HostName` is rewritten when discovery sees the peer at a new IP (a spoofed
-beacon can only cause a failed connection: the host key is pinned).
+`~/.ssh/config` gets a single `Include crossshell/config` line at the very
+top (an Include inside a Host block would only apply to that host), so
+`ssh <alias>`, VS Code Remote-SSH, rsync and git all work. The app's own
+system-ssh calls use `-F ~/.ssh/crossshell/config` so the user's config
+can't redirect them.
 
 Authorized keys get the peer's client key with a marker comment
 `crossshell:<peer-id>` so unpairing can remove exactly that line:
@@ -122,7 +126,8 @@ Initiator I connects to responder R. All hashes SHA-256, keys X25519.
    where pkI is a fresh X25519 public key, nI 32 random bytes.
 2. R shows nothing yet; R→I `{"t":"key","id","name","os","pk":b64(pkR)}`
 3. I→R `{"t":"reveal","pk":b64(pkI),"nonce":b64(nI)}`. R checks the commit.
-4. Both compute `ss = X25519`, `th = H("cs-pair-v1"‖pkI‖pkR‖nI‖idI‖idR)`,
+4. Both compute `ss = X25519`, `th = H("cs-pair-v1"‖pkI‖pkR‖nI‖lp(idI)‖lp(idR))`
+   (`lp` = u16 big-endian length prefix, so ids can't be re-split),
    `SAS = (first 4 bytes of H("cs-sas"‖th) as u32 BE) mod 10^6`, shown as `123 456`.
    The commitment stops a MITM from grinding the SAS: I is bound to pkI
    before it sees pkR, and R reveals pkR before it sees pkI.
@@ -194,13 +199,18 @@ viewer machine                                   host machine
 
 ### host.json
 
-Linux `$XDG_RUNTIME_DIR/crossshell/host.json` (dir 0700, file 0600);
+Linux `${XDG_RUNTIME_DIR:-$HOME/.cache}/crossshell/host.json` (dir 0700, file 0600);
 Windows `%LOCALAPPDATA%\CrossShell\host.json`. Contents:
 `{"v":1,"port":47821,"token":"<64 hex>","pid":1234,"ver":"0.1.0"}`.
-Token: 32 random bytes, new per agent start. Read over SSH:
-- Linux: `cat "$XDG_RUNTIME_DIR/crossshell/host.json"`
-- Windows (works from cmd and PowerShell default shells):
-  `cmd /c type "%LOCALAPPDATA%\CrossShell\host.json"`
+Token: 32 random bytes, new per agent start. Read over SSH only if the pid
+in it is alive (see `remote_commands.dart`). Remote commands are
+`sh -c '…'` on Linux (any login shell, even fish) and `powershell
+-EncodedCommand …` on Windows (works whether the SSH default shell is cmd or
+PowerShell, no quoting pitfalls).
+
+The agent path a peer starts remotely is read from `agent-path` in the
+state dir (`~/.local/state/crossshell/`, `%LOCALAPPDATA%\CrossShell\`),
+written by the local app at startup — never taken from the network.
 
 The agent binds 127.0.0.1:47821 (falls back to any free port, recorded in
 host.json). Single instance via the host.json pid check + bind.
@@ -239,7 +249,7 @@ Session:
 | both | 0x50 | Ping | u64 nanos |
 | both | 0x51 | Pong | u64 nanos (echo) |
 | V→H | 0x11 | SelectDisplay | u8 display_index, u8 quality, u8 max_fps |
-| H→V | 0x60 | Notice | u8 level, str text (e.g. "screen locked") |
+| H→V | 0x60 | Notice | u8 level, str text (e.g. "screen locked"); empty text clears the notice |
 
 Rect = `u16 x, u16 y, u16 w, u16 h, u8 encoding, u32 len, data[len]`:
 
