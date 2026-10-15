@@ -64,8 +64,9 @@ Download from the [releases page](https://github.com/Dhiva-Labs/CrossShell/relea
 - **Windows 11 on ARM (arm64):** `crossshell-<ver>-windows-arm64.zip`, a
   native ARM64 build with the same contents and steps as the x64 zip. It
   needs the Microsoft Visual C++ Redistributable for ARM64, like the x64
-  build needs the x64 one. Screen capture (Desktop Duplication) and input
-  injection work the same on ARM.
+  build needs the x64 one. Remote desktop uses the same Windows APIs as on
+  x64 (Desktop Duplication for capture, `SendInput` for input); CI exercises
+  the capture on a Windows 11 ARM runner.
 
 Pick the file that matches the machine: `uname -m` prints `aarch64` on
 arm64 Linux, and Windows shows the processor type under *Settings, System,

@@ -305,7 +305,7 @@ jobs:
 
       - name: Smoke-run the zip
         timeout-minutes: 10
-        run: ./scripts/smoke-windows.ps1 -Dir $env:BUNDLE -NativeCapture
+        run: ./scripts/smoke-windows.ps1 -Dir $env:BUNDLE -NativeCapture -App
 
       - uses: actions/upload-artifact@v7
         with:

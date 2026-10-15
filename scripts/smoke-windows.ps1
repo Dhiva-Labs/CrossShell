@@ -4,22 +4,26 @@
   it was built for. Needs PowerShell 7.
 
 .DESCRIPTION
-    scripts\smoke-windows.ps1 -Dir <extracted-folder> [-NativeCapture]
+    scripts\smoke-windows.ps1 -Dir <extracted-folder> [-NativeCapture] [-App]
 
   1. engine, synthetic backend: crossshell-host --synthetic serves its test
      pattern, crossshell-view --snapshot connects, decodes and saves a PNG.
   2. -NativeCapture: the same against the real desktop (DXGI Desktop
      Duplication), checking that a frame of the desktop's size arrives.
-  3. app: cross_shell.exe starts, renders, saves a picture of its own window
+  3. -App: cross_shell.exe starts, renders, saves a picture of its own window
      (CROSSSHELL_SHOT) and has started the bundled crossshell-host.exe. A
      release build must also ignore the end-to-end test hooks (CROSSSHELL_TEST_*).
+     The app runs with your real profile (it creates its identity and keys
+     and starts the agent), so use this step on a throwaway machine such as a
+     CI runner.
 
-  The engine's runtime files go to a private %LOCALAPPDATA% for the test.
+  Steps 1 and 2 keep the engine's runtime files in a private %LOCALAPPDATA%.
 #>
 param(
     [Parameter(Mandatory)]
     [string]$Dir,
-    [switch]$NativeCapture
+    [switch]$NativeCapture,
+    [switch]$App
 )
 $ErrorActionPreference = 'Stop'
 $Dir = (Resolve-Path $Dir).Path
@@ -123,18 +127,17 @@ try {
         if ($n.Width -lt 640 -or $n.Height -lt 480) { throw 'unexpected native snapshot size' }
     }
 
-    Write-Host '== 3. app: render a frame and start the bundled agent'
-    $local = Join-Path $tmp 'app-localappdata'
-    New-Item -ItemType Directory -Path $local | Out-Null
-    $saved = @{ L = $env:LOCALAPPDATA; U = $env:USERPROFILE }
-    $env:LOCALAPPDATA = $local
-    $env:USERPROFILE = Join-Path $tmp 'app-home'
-    New-Item -ItemType Directory -Path $env:USERPROFILE | Out-Null
-    $env:CROSSSHELL_SHOT = "$tmp\app.png"
-    $env:CROSSSHELL_SHOT_DELAY = '8'
-    $env:CROSSSHELL_TEST_LOG = "$tmp\hooks.log"
-    $env:CROSSSHELL_TEST_AUTOCONFIRM = '1'
-    try {
+    if ($App) {
+        Write-Host '== 3. app: render a frame and start the bundled agent'
+        # The app finds its folders through the Windows known-folder API, so
+        # it needs the real profile; clear what an earlier run left behind.
+        $agentDir = Join-Path $env:LOCALAPPDATA 'CrossShell'
+        Get-Process -Name 'crossshell-host' -ErrorAction SilentlyContinue | Stop-Process -Force
+        Remove-Item -Force -ErrorAction SilentlyContinue "$agentDir\host.json"
+        $env:CROSSSHELL_SHOT = "$tmp\app.png"
+        $env:CROSSSHELL_SHOT_DELAY = '8'
+        $env:CROSSSHELL_TEST_LOG = "$tmp\hooks.log"
+        $env:CROSSSHELL_TEST_AUTOCONFIRM = '1'
         # The app starts crossshell-host.exe (next to it) when it opens, and
         # exits by itself once it has saved the picture.
         $app = Start-Process -FilePath "$Dir\cross_shell.exe" -PassThru `
@@ -147,17 +150,14 @@ try {
         if (-not $app.HasExited) {
             Write-Host 'the app is still running after 120 s'
             "window handle $($app.MainWindowHandle), title '$($app.MainWindowTitle)', responding $($app.Responding)"
-            "picture saved: $(Test-Path $env:CROSSSHELL_SHOT); agent info written: $(Test-Path "$local\CrossShell\host.json")"
+            "picture saved: $(Test-Path $env:CROSSSHELL_SHOT); agent info written: $(Test-Path "$agentDir\host.json")"
             Show-Logs 'app'
             Write-Host '--- files written since the start'
-            foreach ($root in $env:APPDATA, $local, $env:USERPROFILE, $tmp) {
+            foreach ($root in $env:APPDATA, $env:LOCALAPPDATA, $tmp) {
                 Get-ChildItem -Path $root -Recurse -File -Force -ErrorAction SilentlyContinue |
                     Where-Object { $_.LastWriteTime -gt $started } |
                     ForEach-Object { Write-Host ('{0,10} {1}' -f $_.Length, $_.FullName) }
             }
-            Write-Host '--- processes'
-            Get-Process -Name 'cross_shell', 'crossshell-host' -ErrorAction SilentlyContinue |
-                Format-Table Id, ProcessName, Responding, MainWindowHandle | Out-String | Write-Host
             Stop-Process -Id $app.Id -Force
             throw 'cross_shell.exe did not exit'
         }
@@ -172,14 +172,10 @@ try {
         if ($release -and (Test-Path $env:CROSSSHELL_TEST_LOG)) {
             throw "this release build honoured the end-to-end test hooks: $(Get-Content -Raw $env:CROSSSHELL_TEST_LOG)"
         }
-        $info = "$local\CrossShell\host.json"
-        if (-not (Test-Path $info)) { throw 'the app did not start crossshell-host.exe' }
-        $m = Get-Content -Raw $info | ConvertFrom-Json
+        if (-not (Test-Path "$agentDir\host.json")) { throw 'the app did not start crossshell-host.exe' }
+        $m = Get-Content -Raw "$agentDir\host.json" | ConvertFrom-Json
         "agent started by the app: pid $($m.pid) port $($m.port) ver $($m.ver)"
         Stop-Process -Id $m.pid -Force -ErrorAction SilentlyContinue
-    } finally {
-        $env:LOCALAPPDATA = $saved.L
-        $env:USERPROFILE = $saved.U
     }
     Write-Host 'smoke test passed'
 } finally {
