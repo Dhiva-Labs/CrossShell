@@ -140,16 +140,16 @@ try {
         $env:CROSSSHELL_TEST_AUTOCONFIRM = '1'
         # The app starts crossshell-host.exe (next to it) when it opens, and
         # exits by itself once it has saved the picture.
-        $app = Start-Process -FilePath "$Dir\cross_shell.exe" -PassThru `
+        $appProc = Start-Process -FilePath "$Dir\cross_shell.exe" -PassThru `
             -RedirectStandardOutput "$tmp\app.out" -RedirectStandardError "$tmp\app.err"
         $started = Get-Date
-        while (-not $app.HasExited -and ((Get-Date) - $started).TotalSeconds -lt 120) {
+        while (-not $appProc.HasExited -and ((Get-Date) - $started).TotalSeconds -lt 120) {
             Start-Sleep -Seconds 1
-            $app.Refresh()
+            $appProc.Refresh()
         }
-        if (-not $app.HasExited) {
+        if (-not $appProc.HasExited) {
             Write-Host 'the app is still running after 120 s'
-            "window handle $($app.MainWindowHandle), title '$($app.MainWindowTitle)', responding $($app.Responding)"
+            "window handle $($appProc.MainWindowHandle), title '$($appProc.MainWindowTitle)', responding $($appProc.Responding)"
             "picture saved: $(Test-Path $env:CROSSSHELL_SHOT); agent info written: $(Test-Path "$agentDir\host.json")"
             Show-Logs 'app'
             Write-Host '--- files written since the start'
@@ -158,10 +158,10 @@ try {
                     Where-Object { $_.LastWriteTime -gt $started } |
                     ForEach-Object { Write-Host ('{0,10} {1}' -f $_.Length, $_.FullName) }
             }
-            Stop-Process -Id $app.Id -Force
+            Stop-Process -Id $appProc.Id -Force
             throw 'cross_shell.exe did not exit'
         }
-        $code = $app.ExitCode
+        $code = $appProc.ExitCode
         Show-Logs 'app'
         if ($code -ne 0) { throw "cross_shell.exe exited with $code" }
         if (-not (Test-Path $env:CROSSSHELL_SHOT)) { throw 'the app saved no picture' }
