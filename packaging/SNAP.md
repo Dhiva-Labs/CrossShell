@@ -6,6 +6,7 @@ Snap name: `crossshell`. Packaging is in `snap/snapcraft.yaml`, and the confinem
 
 - **2026-10-12:** revision 1 (0.1.1) was uploaded with `--release=stable`. It is in **manual review** because of the `ssh-dir` personal-files plug, so post the store request below.
 - **After approval:** run `snapcraft release crossshell 1 stable` if the store didn't release it automatically. A revision in review blocks later releases, so don't upload another revision expecting it to go out first.
+- **arm64:** `snapcraft.yaml` lists `amd64` and `arm64`. CI builds both natively (the `Snap amd64` and `Snap arm64` jobs on `ubuntu-24.04` and `ubuntu-24.04-arm`), checks the architecture of the binaries and the expanded PipeWire paths in `meta/snap.yaml`, and keeps each `.snap` as a workflow artifact. It never uploads to the store. Upload the arm64 snap by hand (`snapcraft upload --release=stable crossshell_<ver>_arm64.snap`) only after revision 1 has left review, since a revision in review blocks later releases.
 
 ## What works under strict confinement
 
@@ -52,8 +53,10 @@ sudo snap connect crossshell:ssh-dir
 ## Build and test
 
 ```bash
-snapcraft pack                      # crossshell_0.1.0_amd64.snap
+snapcraft pack                      # crossshell_<ver>_<amd64|arm64>.snap, for the machine's own architecture
 ```
+
+`apps.*.environment` uses `$CRAFT_ARCH_TRIPLET_BUILD_FOR` for the PipeWire plugin directories, which snapcraft expands to `x86_64-linux-gnu` or `aarch64-linux-gnu` when it writes `meta/snap.yaml`.
 
 Test confined in the `snaptest` LXD VM before every upload (see the Dhiva Labs snap notes for the VM recipe). `app/tool/headless_peer.dart` is a headless pairing peer: it answers one pairing request, confirms the code and trusts the other side the same way the app does. That lets you test pairing, SSH in both directions and the agent's remote start against the snap without a second desktop:
 

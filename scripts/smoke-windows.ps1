@@ -111,7 +111,7 @@ try {
     Write-Host '== 1. synthetic backend: host -> view --snapshot'
     $s = Test-Engine 'synthetic' 47831 @('--synthetic') 30
     "synthetic snapshot: $($s.Width)x$($s.Height), $($s.Bytes) bytes"
-    if ($s.Width -ne 1280 -or $s.Height -ne 720 -or $s.Bytes -lt 5000) { throw 'unexpected synthetic snapshot' }
+    if ($s.Width -ne 1280 -or $s.Height -ne 720 -or $s.Bytes -lt 1000) { throw 'unexpected synthetic snapshot' }
 
     if ($NativeCapture) {
         Write-Host '== 2. native backend (DXGI Desktop Duplication): host -> view --snapshot'

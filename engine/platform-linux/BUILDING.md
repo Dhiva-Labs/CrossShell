@@ -23,12 +23,12 @@ mkdir -p "$ROOT/debs" && cd "$ROOT/debs"
 apt-get download libpipewire-0.3-dev libspa-0.2-dev
 for d in *.deb; do dpkg -x "$d" "$ROOT"; done
 
-LIB=$ROOT/usr/lib/x86_64-linux-gnu
+LIB=$ROOT/usr/lib/$(dpkg-architecture -qDEB_HOST_MULTIARCH)   # x86_64-linux-gnu or aarch64-linux-gnu
 # The .pc files say prefix=/usr; make them point into the private prefix.
 sed -i "s|^prefix=.*|prefix=$ROOT/usr|" "$LIB"/pkgconfig/libpipewire-0.3.pc "$LIB"/pkgconfig/libspa-0.2.pc
 # The -dev symlink libpipewire-0.3.so -> libpipewire-0.3.so.0 dangles inside
 # the prefix; aim it at the installed runtime library.
-ln -sfn /usr/lib/x86_64-linux-gnu/libpipewire-0.3.so.0 "$LIB/libpipewire-0.3.so"
+ln -sfn "/usr/lib/$(dpkg-architecture -qDEB_HOST_MULTIARCH)/libpipewire-0.3.so.0" "$LIB/libpipewire-0.3.so"
 
 export PKG_CONFIG_PATH=$LIB/pkgconfig
 cargo build -p crossshell-host

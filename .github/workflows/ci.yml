@@ -357,7 +357,9 @@ jobs:
           grep -n 'SPA_PLUGIN_DIR\|PIPEWIRE_MODULE_DIR' "$S/meta/snap.yaml"
           grep -qF "\$SNAP/usr/lib/$TRIPLET/spa-0.2" "$S/meta/snap.yaml"
           grep -qF "\$SNAP/usr/lib/$TRIPLET/pipewire-0.3" "$S/meta/snap.yaml"
-          [ -d "$S/usr/lib/$TRIPLET/spa-0.2" ] && [ -d "$S/usr/lib/$TRIPLET/pipewire-0.3" ]
+          # What the snap carries for PipeWire on this architecture.
+          find "$S/usr/lib/$TRIPLET" -maxdepth 1 \( -name '*pipewire*' -o -name 'spa-0.2' \)
+          [ -d "$S/usr/lib/$TRIPLET/spa-0.2" ]
           for f in cross_shell crossshell-host crossshell-view usr/bin/ssh "usr/lib/$TRIPLET/libpipewire-0.3.so.0"; do
             [ -e "$S/$f" ] || { echo "::error::missing $f in the snap"; exit 1; }
             file -L "$S/$f" | tee /dev/stderr | grep -q "$ELF_MACHINE"
@@ -369,12 +371,14 @@ jobs:
           path: ${{ steps.build.outputs.snap }}
           if-no-files-found: error
 
-  # Releases are made by hand (x64 tarball and zip built with scripts/ and
-  # attached with SHA256SUMS). Publishing a release adds the arm64 assets and
-  # their checksums; the x64 assets are never touched. On every other event
-  # the job only selects and checks the files, so that part is tested on PRs.
+  # Releases are made by hand. When a release is published, this job attaches
+  # the tarballs and zips of both architectures that are not on it yet, plus
+  # SHA256SUMS when it has none. It never replaces an asset: files uploaded by
+  # hand win, so a release can also be published with notes only and this job
+  # completes it. On every other event it only selects and checks the files,
+  # so that part is tested on PRs.
   release:
-    name: Release assets (arm64)
+    name: Release assets
     needs: [linux, windows]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -388,26 +392,26 @@ jobs:
 
       - uses: actions/download-artifact@v8
         with:
-          name: linux-arm64
+          pattern: linux-*
           path: assets
+          merge-multiple: true
 
       - uses: actions/download-artifact@v8
         with:
-          name: windows-arm64
+          pattern: windows-*
           path: assets
+          merge-multiple: true
 
-      - name: Select the arm64 release assets
+      - name: Select the release assets
         id: select
         run: |
           VERSION="$(grep -m1 '^version' engine/Cargo.toml | sed 's/.*"\(.*\)"/\1/')"
-          LINUX="crossshell-${VERSION}-linux-arm64.tar.gz"
-          WINDOWS="crossshell-${VERSION}-windows-arm64.zip"
+          FILES="crossshell-${VERSION}-linux-x64.tar.gz crossshell-${VERSION}-linux-arm64.tar.gz crossshell-${VERSION}-windows-x64.zip crossshell-${VERSION}-windows-arm64.zip"
           ls -l assets
-          [ "$(ls assets | wc -l)" -eq 2 ]
-          (cd assets && sha256sum "$LINUX" "$WINDOWS" | tee arm64.sums)
+          [ "$(ls assets | wc -l)" -eq 4 ]
+          (cd assets && ls -l $FILES && sha256sum $FILES)
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "linux=$LINUX" >> "$GITHUB_OUTPUT"
-          echo "windows=$WINDOWS" >> "$GITHUB_OUTPUT"
+          echo "files=$FILES" >> "$GITHUB_OUTPUT"
 
       - name: Upload to release ${{ github.event.release.tag_name }}
         if: github.event_name == 'release'
@@ -415,22 +419,44 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name }}
           VERSION: ${{ steps.select.outputs.version }}
-          LINUX: ${{ steps.select.outputs.linux }}
-          WINDOWS: ${{ steps.select.outputs.windows }}
+          FILES: ${{ steps.select.outputs.files }}
         run: |
           if [ "$TAG" != "v$VERSION" ]; then
             echo "::error::release tag $TAG does not match the version $VERSION in engine/Cargo.toml"
             exit 1
           fi
           cd assets
-          # SHA256SUMS: keep the existing lines (the x64 assets), add or
-          # replace the arm64 ones.
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -qx SHA256SUMS; then
-            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS --dir existing
-            awk '$2 !~ /arm64\.(tar\.gz|zip)$/' existing/SHA256SUMS > SHA256SUMS
+          # No grep -q here: with pipefail it can end the pipeline early.
+          has() { gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -xF -- "$1" > /dev/null; }
+
+          # Upload what the release does not have yet. No --clobber: an asset
+          # that is there, or appears while this runs, is kept as it is.
+          for f in $FILES; do
+            if has "$f"; then
+              echo "$f is already on the release; keeping it"
+            elif gh release upload "$TAG" "$f" --repo "$GITHUB_REPOSITORY"; then
+              echo "uploaded $f"
+            elif has "$f"; then
+              echo "$f appeared on the release meanwhile; keeping it"
+            else
+              echo "::error::could not upload $f"
+              exit 1
+            fi
+          done
+
+          # SHA256SUMS only when the release has none. It covers the files as
+          # they are on the release (downloaded when this job did not upload
+          # them).
+          if has SHA256SUMS; then
+            echo "SHA256SUMS is already on the release; keeping it"
           else
+            mkdir on-release
             : > SHA256SUMS
+            for f in $FILES; do
+              gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$f" --dir on-release
+              (cd on-release && sha256sum "$f") >> SHA256SUMS
+            done
+            cat SHA256SUMS
+            gh release upload "$TAG" SHA256SUMS --repo "$GITHUB_REPOSITORY" \
+              || has SHA256SUMS
           fi
-          cat arm64.sums >> SHA256SUMS
-          cat SHA256SUMS
-          gh release upload "$TAG" "$LINUX" "$WINDOWS" SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"

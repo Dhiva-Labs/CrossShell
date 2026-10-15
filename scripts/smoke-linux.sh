@@ -29,7 +29,7 @@ trap cleanup EXIT
 wait_for() { # <file> <seconds>
   local i
   for ((i = 0; i < $2 * 5; i++)); do
-    [ -s "$1" ] && return 0
+    { [ -s "$1" ] || [ -S "$1" ]; } && return 0
     sleep 0.2
   done
   echo "timed out after $2 s waiting for $1" >&2

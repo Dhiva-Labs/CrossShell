@@ -1,5 +1,9 @@
 # CrossShell
 
+[![ARM64 builds](https://github.com/Dhiva-Labs/CrossShell/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Dhiva-Labs/CrossShell/actions/workflows/ci.yml)
+![Linux x64 | arm64](https://img.shields.io/badge/Linux-x64%20%7C%20arm64-informational?logo=linux&logoColor=white)
+![Windows x64 | arm64](https://img.shields.io/badge/Windows-x64%20%7C%20arm64-informational?logo=windows&logoColor=white)
+
 Two machines, one desk. CrossShell links a Linux daily driver and a Windows
 build box (or any mix of Linux and Windows machines) on the same network:
 
@@ -51,16 +55,29 @@ Download from the [releases page](https://github.com/Dhiva-Labs/CrossShell/relea
 - **Linux (x64):** `crossshell-<ver>-linux-x64.tar.gz`. Extract it and run
   `./cross_shell`. You need the OpenSSH client (`ssh`, `ssh-keygen`) and
   GTK 3. Screen sharing uses PipeWire, which any current desktop has.
+- **Linux (arm64):** `crossshell-<ver>-linux-arm64.tar.gz`, the same bundle
+  built natively for aarch64. It has the same requirements and is used the
+  same way.
 - **Windows 10/11 (x64):** `crossshell-<ver>-windows-x64.zip`. Extract it
   and run `cross_shell.exe`. The OpenSSH client ships with Windows; the app
   can install OpenSSH Server for you.
+- **Windows 11 on ARM (arm64):** `crossshell-<ver>-windows-arm64.zip`, a
+  native ARM64 build with the same contents and steps as the x64 zip. It
+  needs the Microsoft Visual C++ Redistributable for ARM64, like the x64
+  build needs the x64 one. Screen capture (Desktop Duplication) and input
+  injection work the same on ARM.
+
+Pick the file that matches the machine: `uname -m` prints `aarch64` on
+arm64 Linux, and Windows shows the processor type under *Settings, System,
+About*. A machine pair can mix architectures, for example a Linux arm64
+box and an x64 Windows PC.
 
 > **The builds are not code-signed yet.** On Windows, SmartScreen will warn
 > on first launch. If **Smart App Control** is on, it may block
 > `cross_shell.exe` or the screen-share agent `crossshell-host.exe`. The
 > app tells you when that happens. Signed releases are planned.
 
-Verify downloads with `SHA256SUMS`.
+Verify downloads with `SHA256SUMS` (it lists the x64 and arm64 files).
 
 ## Use it
 
@@ -101,9 +118,28 @@ ssh winbox
 ## Build
 
 ```bash
-scripts/build-linux.sh                     # dist/crossshell-<ver>-linux-x64.tar.gz
+scripts/build-linux.sh                     # dist/crossshell-<ver>-linux-<x64|arm64>.tar.gz
 scripts/build-windows.sh user@winbox       # dist/crossshell-<ver>-windows-x64.zip
 ```
+
+`build-linux.sh` builds natively for the machine it runs on, so run it on an
+aarch64 machine for the arm64 bundle. Flutter cannot cross-compile Windows,
+so `build-windows.sh` produces the x64 zip (engine cross-built here, app
+built on the Windows machine). The arm64 builds happen on native runners in
+CI (`.github/workflows/ci.yml`): `ubuntu-24.04-arm` and `windows-11-arm`. On
+a Windows machine, after `cargo build --release -p crossshell-host -p
+crossshell-view` in `engine/` and `flutter build windows --release` in
+`app/`, `scripts\package-windows.ps1` writes the zip for that machine's
+architecture.
+
+Every CI run builds and tests both architectures, checks that each binary
+in the packages is the right architecture (ELF `aarch64` / PE `0xAA64`) and
+smoke-runs the packaged engine and app (`scripts/smoke-linux.sh`,
+`scripts/smoke-windows.ps1`). When a release is published, the workflow
+attaches the tarballs and zips for x64 and arm64 that the release does not
+have yet, and `SHA256SUMS` if it has none. It never replaces a file, so
+anything uploaded by hand stays as it was. The CI also builds the Snap on
+amd64 and arm64 (see [packaging/SNAP.md](packaging/SNAP.md)).
 
 Layout: `app/` is the Flutter UI (Linux + Windows) and `engine/` is the Rust
 workspace:
