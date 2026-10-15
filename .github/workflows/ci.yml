@@ -2,55 +2,435 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, arm64-support]
   pull_request:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # The Flutter release the app is developed on (app/.metadata, pubspec.lock).
+  FLUTTER_VERSION: '3.44.6'
+  CARGO_TERM_COLOR: always
 
 jobs:
-  engine-linux:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Native deps
-        run: sudo apt-get update && sudo apt-get install -y libpipewire-0.3-dev libclang-dev pkg-config clang libxkbcommon-dev
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: engine
-      - name: Test
-        working-directory: engine
-        run: cargo test --release --workspace
-
-  engine-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: engine
-      - name: Test
-        working-directory: engine
-        run: cargo test --release -p crossshell-proto -p crossshell-platform -p crossshell-platform-windows -p crossshell-host -p crossshell-view
-
-  app:
+  # Engine tests, app analyze/tests, release build and packaging on native
+  # runners: Linux x64 and arm64.
+  linux:
+    name: Linux ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-latest]
-    runs-on: ${{ matrix.os }}
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+            elf_machine: x86-64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            elf_machine: ARM aarch64
+    env:
+      ELF_MACHINE: ${{ matrix.elf_machine }}
     steps:
-      - uses: actions/checkout@v4
-      - name: Linux desktop deps
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y ninja-build libgtk-3-dev
-      - uses: subosito/flutter-action@v2
+      - uses: actions/checkout@v7
+
+      # libpipewire-0.3-dev, libclang-dev, clang: crossshell-platform-linux
+      #   (bindgen generates the PipeWire bindings).
+      # libgtk-3-dev, cmake, ninja-build, liblzma-dev, libstdc++-12-dev: the
+      #   Flutter Linux build.
+      # file, xvfb, x11-xserver-utils, dbus-x11, python3-pil, libgl1-mesa-dri,
+      #   libegl1: scripts/smoke-linux.sh.
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config libclang-dev \
+            libgtk-3-dev liblzma-dev libstdc++-12-dev \
+            libpipewire-0.3-dev libxkbcommon-dev \
+            file xvfb x11-xserver-utils dbus-x11 python3-pil \
+            libgl1-mesa-dri libegl1
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
         with:
-          channel: stable
+          workspaces: engine
+          key: ${{ matrix.arch }}
+
+      # There are no Flutter SDK archives for Linux arm64, so clone the
+      # release tag. The same method is used on x64.
+      - name: Install Flutter ${{ env.FLUTTER_VERSION }}
+        run: |
+          git clone --depth 1 --branch "$FLUTTER_VERSION" \
+            https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: Configure Flutter
+        run: |
+          uname -m
+          flutter config --no-analytics --enable-linux-desktop
+          flutter precache --linux
+          flutter --version
+          dart --version
+
+      - name: Get packages
+        working-directory: app
+        run: flutter pub get
+
       - name: Analyze
         working-directory: app
         run: flutter analyze
-      - name: Test
+
+      - name: Flutter tests
         working-directory: app
         run: flutter test
-      - name: Build
+
+      - name: Engine tests
+        working-directory: engine
+        run: cargo test --release --locked --workspace
+
+      # Builds the engine and the app natively and packages
+      # dist/crossshell-<version>-linux-<x64|arm64>.tar.gz.
+      - name: Build and package
+        run: scripts/build-linux.sh
+
+      - name: Check the tarball
+        run: |
+          VERSION="$(grep -m1 '^version' engine/Cargo.toml | sed 's/.*"\(.*\)"/\1/')"
+          NAME="crossshell-${VERSION}-linux-${{ matrix.arch }}"
+          ls -l dist
+          [ "$(ls dist | wc -l)" -eq 1 ]
+          [ -f "dist/$NAME.tar.gz" ]
+          tar -xzf "dist/$NAME.tar.gz" -C "$RUNNER_TEMP"
+          BUNDLE="$RUNNER_TEMP/$NAME"
+          for f in cross_shell crossshell-host crossshell-view lib/libapp.so lib/libflutter_linux_gtk.so data/icudtl.dat; do
+            [ -f "$BUNDLE/$f" ] || { echo "::error::missing $f in the tarball"; exit 1; }
+          done
+          echo "BUNDLE=$BUNDLE" >> "$GITHUB_ENV"
+          # Every ELF file (app, engine binaries, plugin libraries, AOT code).
+          checked=0
+          bad=0
+          while IFS= read -r -d '' f; do
+            desc="$(file -b "$f")"
+            case "$desc" in ELF*) ;; *) continue ;; esac
+            echo "${f#"$BUNDLE"/}: $desc"
+            checked=$((checked + 1))
+            case "$desc" in
+              *"$ELF_MACHINE"*) ;;
+              *) echo "::error file=$f::not $ELF_MACHINE"; bad=1 ;;
+            esac
+          done < <(find "$BUNDLE" -type f -print0)
+          echo "checked $checked ELF files"
+          [ "$checked" -ge 5 ] && [ "$bad" -eq 0 ]
+
+      - name: Smoke-run the tarball
+        timeout-minutes: 10
+        run: scripts/smoke-linux.sh "$BUNDLE"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-${{ matrix.arch }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  # Same on Windows: the x64 and arm64 runners build natively with MSVC.
+  windows:
+    name: Windows ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-latest
+            rust_host: x86_64-pc-windows-msvc
+            pe_machine: '0x8664'
+            elf_machine: '0x3E'
+          - arch: arm64
+            runner: windows-11-arm
+            rust_host: aarch64-pc-windows-msvc
+            pe_machine: '0xAA64'
+            elf_machine: '0xB7'
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      ARCH: ${{ matrix.arch }}
+      # COFF machine of every .exe/.dll, and ELF e_machine of the AOT snapshot
+      # (data\app.so is an ELF file on Windows too).
+      PE_MACHINE: ${{ matrix.pe_machine }}
+      ELF_MACHINE: ${{ matrix.elf_machine }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Show the toolchain the image carries
+        run: |
+          "PROCESSOR_ARCHITECTURE=$env:PROCESSOR_ARCHITECTURE"
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          & $vswhere -latest -products * -property displayName
+          foreach ($c in 'VC.Tools.x86.x64', 'VC.Tools.ARM64', 'VC.ATL', 'VC.ATL.ARM64') {
+            $path = & $vswhere -latest -products * -requires "Microsoft.VisualStudio.Component.$c" -property installationPath
+            '{0,-20} {1}' -f $c, ($(if ($path) { 'installed' } else { 'missing' }))
+          }
+          Get-Command rustup, cargo, rustc -ErrorAction SilentlyContinue | Format-Table Name, Source
+
+      # The runner images may not carry Rust (or a current one): use rustup,
+      # installing it first when it is missing, and the stable toolchain for
+      # the host triple.
+      - name: Install Rust (stable, ${{ matrix.rust_host }})
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $cargoBin = Join-Path $env:USERPROFILE '.cargo\bin'
+          if (-not (Get-Command rustup -ErrorAction SilentlyContinue) -and -not (Test-Path "$cargoBin\rustup.exe")) {
+            $triple = '${{ matrix.rust_host }}'
+            Invoke-WebRequest "https://static.rust-lang.org/rustup/dist/$triple/rustup-init.exe" -OutFile "$env:RUNNER_TEMP\rustup-init.exe"
+            & "$env:RUNNER_TEMP\rustup-init.exe" -y --default-toolchain none --profile minimal --default-host $triple
+          }
+          Add-Content -Path $env:GITHUB_PATH -Value $cargoBin
+          $env:PATH = "$cargoBin;$env:PATH"
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          rustup show
+          $rustHost = (rustc -vV | Select-String '^host:').Line
+          $rustHost
+          if ($rustHost -ne 'host: ${{ matrix.rust_host }}') { throw "rustc host is not ${{ matrix.rust_host }}" }
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engine
+          key: ${{ matrix.arch }}
+
+      # On an ARM64 host (PROCESSOR_ARCHITECTURE=ARM64) the bootstrap fetches
+      # the arm64 Dart SDK and `flutter build windows` targets windows-arm64.
+      - name: Install Flutter ${{ env.FLUTTER_VERSION }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          git clone --depth 1 --branch $env:FLUTTER_VERSION `
+            https://github.com/flutter/flutter.git "$env:RUNNER_TEMP\flutter"
+          Add-Content -Path $env:GITHUB_PATH -Value "$env:RUNNER_TEMP\flutter\bin"
+
+      - name: Configure Flutter
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          flutter config --no-analytics --enable-windows-desktop
+          flutter precache --windows
+          flutter --version
+          dart --version
+
+      - name: Get packages
         working-directory: app
-        run: flutter build ${{ runner.os == 'Linux' && 'linux' || 'windows' }} --release
+        run: flutter pub get
+
+      - name: Analyze
+        working-directory: app
+        run: flutter analyze
+
+      - name: Flutter tests
+        working-directory: app
+        run: flutter test
+
+      # crossshell-platform-linux is Linux-only, so it is not part of this run.
+      - name: Engine tests
+        working-directory: engine
+        run: cargo test --release --locked -p crossshell-proto -p crossshell-platform -p crossshell-platform-windows -p crossshell-host -p crossshell-view
+
+      - name: Build the engine
+        working-directory: engine
+        run: cargo build --release --locked -p crossshell-host -p crossshell-view
+
+      - name: Build the app
+        working-directory: app
+        run: flutter build windows --release
+
+      # Adds the engine executables to the app folder and writes
+      # dist\crossshell-<version>-windows-<x64|arm64>.zip.
+      - name: Package
+        run: ./scripts/package-windows.ps1
+
+      - name: Check the zip
+        run: |
+          function Get-PeMachine([string]$Path) {
+            $fs = [IO.File]::OpenRead($Path)
+            try {
+              $br = New-Object IO.BinaryReader($fs)
+              $fs.Position = 0x3C
+              $fs.Position = $br.ReadInt32()
+              if ($br.ReadUInt32() -ne 0x4550) { throw "$Path is not a PE file" }
+              return $br.ReadUInt16()
+            } finally { $fs.Dispose() }
+          }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $version = (Select-String -Path engine\Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          $name = "crossshell-$version-windows-$env:ARCH"
+          Get-ChildItem dist | Format-Table Name, Length
+          if ((Get-ChildItem dist).Count -ne 1 -or -not (Test-Path "dist\$name.zip")) { throw "expected exactly dist\$name.zip" }
+
+          $zip = [IO.Compression.ZipFile]::OpenRead((Resolve-Path "dist\$name.zip"))
+          try {
+            $names = $zip.Entries.FullName
+            "zip: $($names.Count) entries"
+            if ($names | Where-Object { $_ -like '*\*' }) { throw 'the zip has backslash separators' }
+            foreach ($f in 'cross_shell.exe', 'crossshell-host.exe', 'crossshell-view.exe', 'flutter_windows.dll', 'data/app.so', 'data/icudtl.dat') {
+              if ($names -notcontains $f) { throw "$f is not at the root of the zip" }
+            }
+          } finally { $zip.Dispose() }
+
+          $dir = Join-Path $env:RUNNER_TEMP $name
+          Expand-Archive -Path "dist\$name.zip" -DestinationPath $dir
+          "BUNDLE=$dir" | Add-Content -Path $env:GITHUB_ENV
+
+          $expected = [Convert]::ToUInt16($env:PE_MACHINE, 16)
+          $files = Get-ChildItem -Path $dir -Recurse -File -Include *.exe, *.dll
+          $bad = 0
+          foreach ($f in $files) {
+            $m = Get-PeMachine $f.FullName
+            '{0,-50} 0x{1:X4}' -f $f.FullName.Substring($dir.Length + 1), $m
+            if ($m -ne $expected) { Write-Host "::error file=$($f.FullName)::machine 0x$('{0:X4}' -f $m), expected $env:PE_MACHINE"; $bad++ }
+          }
+          $bytes = [IO.File]::ReadAllBytes("$dir\data\app.so")
+          $elf = [BitConverter]::ToUInt16($bytes, 0x12)
+          'data\app.so ELF e_machine 0x{0:X2}' -f $elf
+          if ($elf -ne [Convert]::ToUInt16($env:ELF_MACHINE, 16)) { Write-Host "::error::app.so is not $env:ELF_MACHINE"; $bad++ }
+          "checked $($files.Count) PE files and app.so"
+          if ($bad -or $files.Count -lt 8) { exit 1 }
+
+      - name: Smoke-run the zip
+        timeout-minutes: 10
+        run: ./scripts/smoke-windows.ps1 -Dir $env:BUNDLE -NativeCapture
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-${{ matrix.arch }}
+          path: dist/*.zip
+          if-no-files-found: error
+
+  # The Snap Store package (strict confinement). Built on each architecture
+  # as a workflow artifact only: uploading to the store is done by hand.
+  snap:
+    name: Snap ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            triplet: x86_64-linux-gnu
+            elf_machine: x86-64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            triplet: aarch64-linux-gnu
+            elf_machine: ARM aarch64
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: snapcore/action-build@v1
+        id: build
+
+      - name: Assert the snap is ${{ matrix.arch }}
+        env:
+          SNAP_FILE: ${{ steps.build.outputs.snap }}
+          ELF_MACHINE: ${{ matrix.elf_machine }}
+          TRIPLET: ${{ matrix.triplet }}
+        run: |
+          ls -l "$SNAP_FILE"
+          case "$SNAP_FILE" in
+            *_${{ matrix.arch }}.snap) ;;
+            *) echo "::error::unexpected snap file name $SNAP_FILE"; exit 1 ;;
+          esac
+          command -v unsquashfs > /dev/null || sudo apt-get install -y squashfs-tools
+          S="$RUNNER_TEMP/snap"
+          unsquashfs -q -d "$S" "$SNAP_FILE"
+          sed -n '/^architectures:/,/^[a-z]/p' "$S/meta/snap.yaml"
+          grep -qx -- '- ${{ matrix.arch }}' "$S/meta/snap.yaml"
+          # Snapcraft must have expanded the triplet in the app environment.
+          grep -n 'SPA_PLUGIN_DIR\|PIPEWIRE_MODULE_DIR' "$S/meta/snap.yaml"
+          grep -qF "\$SNAP/usr/lib/$TRIPLET/spa-0.2" "$S/meta/snap.yaml"
+          grep -qF "\$SNAP/usr/lib/$TRIPLET/pipewire-0.3" "$S/meta/snap.yaml"
+          [ -d "$S/usr/lib/$TRIPLET/spa-0.2" ] && [ -d "$S/usr/lib/$TRIPLET/pipewire-0.3" ]
+          for f in cross_shell crossshell-host crossshell-view usr/bin/ssh "usr/lib/$TRIPLET/libpipewire-0.3.so.0"; do
+            [ -e "$S/$f" ] || { echo "::error::missing $f in the snap"; exit 1; }
+            file -L "$S/$f" | tee /dev/stderr | grep -q "$ELF_MACHINE"
+          done
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: snap-${{ matrix.arch }}
+          path: ${{ steps.build.outputs.snap }}
+          if-no-files-found: error
+
+  # Releases are made by hand (x64 tarball and zip built with scripts/ and
+  # attached with SHA256SUMS). Publishing a release adds the arm64 assets and
+  # their checksums; the x64 assets are never touched. On every other event
+  # the job only selects and checks the files, so that part is tested on PRs.
+  release:
+    name: Release assets (arm64)
+    needs: [linux, windows]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: engine/Cargo.toml
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: linux-arm64
+          path: assets
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: windows-arm64
+          path: assets
+
+      - name: Select the arm64 release assets
+        id: select
+        run: |
+          VERSION="$(grep -m1 '^version' engine/Cargo.toml | sed 's/.*"\(.*\)"/\1/')"
+          LINUX="crossshell-${VERSION}-linux-arm64.tar.gz"
+          WINDOWS="crossshell-${VERSION}-windows-arm64.zip"
+          ls -l assets
+          [ "$(ls assets | wc -l)" -eq 2 ]
+          (cd assets && sha256sum "$LINUX" "$WINDOWS" | tee arm64.sums)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "linux=$LINUX" >> "$GITHUB_OUTPUT"
+          echo "windows=$WINDOWS" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to release ${{ github.event.release.tag_name }}
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+          VERSION: ${{ steps.select.outputs.version }}
+          LINUX: ${{ steps.select.outputs.linux }}
+          WINDOWS: ${{ steps.select.outputs.windows }}
+        run: |
+          if [ "$TAG" != "v$VERSION" ]; then
+            echo "::error::release tag $TAG does not match the version $VERSION in engine/Cargo.toml"
+            exit 1
+          fi
+          cd assets
+          # SHA256SUMS: keep the existing lines (the x64 assets), add or
+          # replace the arm64 ones.
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -qx SHA256SUMS; then
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS --dir existing
+            awk '$2 !~ /arm64\.(tar\.gz|zip)$/' existing/SHA256SUMS > SHA256SUMS
+          else
+            : > SHA256SUMS
+          fi
+          cat arm64.sums >> SHA256SUMS
+          cat SHA256SUMS
+          gh release upload "$TAG" "$LINUX" "$WINDOWS" SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"
