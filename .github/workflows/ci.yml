@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, arm64-support]
+    branches: [main]
   pull_request:
   workflow_dispatch:
   release:
@@ -316,7 +316,6 @@ jobs:
   # The Snap Store package (strict confinement). Built on each architecture
   # as a workflow artifact only: uploading to the store is done by hand.
   snap:
-    if: ${{ false }} # TEMP-DEBUG: snaps passed in run 38777046148; re-enabled before the PR
     name: Snap ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 75
