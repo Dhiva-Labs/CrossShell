@@ -135,7 +135,33 @@ try {
     $env:CROSSSHELL_TEST_LOG = "$tmp\hooks.log"
     $env:CROSSSHELL_TEST_AUTOCONFIRM = '1'
     try {
-        $code = Invoke-Program "$Dir\cross_shell.exe" $null 'app' $null 120
+        # The app starts crossshell-host.exe (next to it) when it opens, and
+        # exits by itself once it has saved the picture.
+        $app = Start-Process -FilePath "$Dir\cross_shell.exe" -PassThru `
+            -RedirectStandardOutput "$tmp\app.out" -RedirectStandardError "$tmp\app.err"
+        $started = Get-Date
+        while (-not $app.HasExited -and ((Get-Date) - $started).TotalSeconds -lt 120) {
+            Start-Sleep -Seconds 1
+            $app.Refresh()
+        }
+        if (-not $app.HasExited) {
+            Write-Host 'the app is still running after 120 s'
+            "window handle $($app.MainWindowHandle), title '$($app.MainWindowTitle)', responding $($app.Responding)"
+            "picture saved: $(Test-Path $env:CROSSSHELL_SHOT); agent info written: $(Test-Path "$local\CrossShell\host.json")"
+            Show-Logs 'app'
+            Write-Host '--- files written since the start'
+            foreach ($root in $env:APPDATA, $local, $env:USERPROFILE, $tmp) {
+                Get-ChildItem -Path $root -Recurse -File -Force -ErrorAction SilentlyContinue |
+                    Where-Object { $_.LastWriteTime -gt $started } |
+                    ForEach-Object { Write-Host ('{0,10} {1}' -f $_.Length, $_.FullName) }
+            }
+            Write-Host '--- processes'
+            Get-Process -Name 'cross_shell', 'crossshell-host' -ErrorAction SilentlyContinue |
+                Format-Table Id, ProcessName, Responding, MainWindowHandle | Out-String | Write-Host
+            Stop-Process -Id $app.Id -Force
+            throw 'cross_shell.exe did not exit'
+        }
+        $code = $app.ExitCode
         Show-Logs 'app'
         if ($code -ne 0) { throw "cross_shell.exe exited with $code" }
         if (-not (Test-Path $env:CROSSSHELL_SHOT)) { throw 'the app saved no picture' }

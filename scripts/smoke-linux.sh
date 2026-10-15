@@ -6,7 +6,8 @@
 #
 #   scripts/smoke-linux.sh <extracted-bundle-dir>
 #
-# Needs: Xvfb, xsetroot, python3 with PIL (python3-pil), file, and dbus-run-session.
+# Needs: Xvfb, python3 with tkinter and PIL (python3-tk, python3-pil), file, and
+# dbus-run-session.
 #
 #   1. engine, synthetic backend: crossshell-host --synthetic serves its test
 #      pattern, crossshell-view --snapshot connects, decodes and saves a PNG.
@@ -69,7 +70,24 @@ export DISPLAY=:99
 Xvfb "$DISPLAY" -screen 0 1280x720x24 -nolisten tcp > "$tmp/xvfb.log" 2>&1 &
 pids+=($!)
 wait_for /tmp/.X11-unix/X99 20
-xsetroot -solid '#336699'
+# A borderless 1280x720 window in a known colour (there is no window manager
+# on this display) for the capture to find.
+cat > "$tmp/paint.py" << 'PY'
+import sys
+import tkinter as tk
+
+root = tk.Tk()
+root.overrideredirect(True)
+root.geometry("1280x720+0+0")
+root.configure(bg="#336699")
+root.update()
+open(sys.argv[1], "w").write("painted\n")
+root.mainloop()
+PY
+python3 "$tmp/paint.py" "$tmp/painted" &
+pids+=($!)
+wait_for "$tmp/painted" 20
+sleep 1
 (
   fresh_env x11
   CROSSSHELL_LINUX_BACKEND=x11 "$bundle/crossshell-host" --no-clipboard --port 47832 > "$tmp/x11-host.log" 2>&1 &
@@ -79,8 +97,9 @@ xsetroot -solid '#336699'
   token_of "$XDG_RUNTIME_DIR/crossshell/host.json" \
     | "$bundle/crossshell-view" --port 47832 --snapshot "$tmp/x11.png" --frames 5 | tee "$tmp/x11-view.log" \
     || { cat "$tmp/x11-host.log"; exit 1; }
+  cat "$tmp/x11-host.log"
   file "$tmp/x11.png"
-  python3 - "$tmp/x11.png" << 'EOF'
+  python3 - "$tmp/x11.png" << 'PY'
 import sys
 from PIL import Image
 im = Image.open(sys.argv[1]).convert("RGB")
@@ -88,7 +107,7 @@ px = im.getpixel((640, 360))
 print("size", im.size, "pixel(640,360)", px)
 assert im.size == (1280, 720), im.size
 assert px == (0x33, 0x66, 0x99), px
-EOF
+PY
 )
 
 echo "== 3. app: render a frame and start the bundled agent"
@@ -96,8 +115,25 @@ echo "== 3. app: render a frame and start the bundled agent"
   fresh_env app
   export CROSSSHELL_SHOT="$tmp/app.png" CROSSSHELL_SHOT_DELAY=8 GDK_BACKEND=x11 LIBGL_ALWAYS_SOFTWARE=1
   export CROSSSHELL_TEST_LOG="$tmp/hooks.log" CROSSSHELL_TEST_AUTOCONFIRM=1
-  # The app starts crossshell-host (next to it) when it opens.
-  timeout 120 dbus-run-session -- "$bundle/cross_shell" > "$tmp/app.log" 2>&1 || { cat "$tmp/app.log"; exit 1; }
+  # The app starts crossshell-host (next to it) when it opens, and exits by
+  # itself once it has saved the picture.
+  dbus-run-session -- "$bundle/cross_shell" > "$tmp/app.log" 2>&1 &
+  app=$!
+  for ((i = 0; i < 120; i++)); do
+    kill -0 "$app" 2> /dev/null || break
+    sleep 1
+  done
+  if kill -0 "$app" 2> /dev/null; then
+    echo "the app is still running after 120 s" >&2
+    cat "$tmp/app.log"
+    echo "--- files the app wrote"
+    find "$HOME" "$XDG_RUNTIME_DIR" "$XDG_DATA_HOME" "$XDG_STATE_HOME" "$tmp/app.png" 2> /dev/null || true
+    echo "--- processes"
+    ps -eo pid,ppid,stat,etime,args | grep -E 'cross_shell|crossshell|dbus' | grep -v grep || true
+    kill "$app" 2> /dev/null || true
+    exit 1
+  fi
+  wait "$app" || { echo "the app exited with status $?" >&2; cat "$tmp/app.log"; exit 1; }
   cat "$tmp/app.log"
   [ -s "$CROSSSHELL_SHOT" ] || { echo "the app saved no picture" >&2; exit 1; }
   file "$CROSSSHELL_SHOT"

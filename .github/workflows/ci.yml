@@ -46,7 +46,7 @@ jobs:
       #   (bindgen generates the PipeWire bindings).
       # libgtk-3-dev, cmake, ninja-build, liblzma-dev, libstdc++-12-dev: the
       #   Flutter Linux build.
-      # file, xvfb, x11-xserver-utils, dbus-x11, python3-pil, libgl1-mesa-dri,
+      # file, xvfb, dbus-x11, python3-pil, python3-tk, libgl1-mesa-dri,
       #   libegl1: scripts/smoke-linux.sh.
       - name: Install build dependencies
         run: |
@@ -55,7 +55,7 @@ jobs:
             clang cmake ninja-build pkg-config libclang-dev \
             libgtk-3-dev liblzma-dev libstdc++-12-dev \
             libpipewire-0.3-dev libxkbcommon-dev \
-            file xvfb x11-xserver-utils dbus-x11 python3-pil \
+            file xvfb dbus-x11 python3-pil python3-tk \
             libgl1-mesa-dri libegl1
 
       - uses: dtolnay/rust-toolchain@stable
@@ -316,6 +316,7 @@ jobs:
   # The Snap Store package (strict confinement). Built on each architecture
   # as a workflow artifact only: uploading to the store is done by hand.
   snap:
+    if: ${{ false }} # TEMP-DEBUG: snaps passed in run 38777046148; re-enabled before the PR
     name: Snap ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 75
