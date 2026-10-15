@@ -647,7 +647,7 @@ checksum = "a31eee39dddec8330830986fcd7625edb5a24ec90ea038215273bbc3adb08ac6"
 
 [[package]]
 name = "crossshell-host"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "arboard",
@@ -664,7 +664,7 @@ dependencies = [
 
 [[package]]
 name = "crossshell-platform"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "crossshell-proto",
@@ -673,7 +673,7 @@ dependencies = [
 
 [[package]]
 name = "crossshell-platform-linux"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-io",
@@ -689,7 +689,7 @@ dependencies = [
 
 [[package]]
 name = "crossshell-platform-windows"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "crossshell-platform",
@@ -700,7 +700,7 @@ dependencies = [
 
 [[package]]
 name = "crossshell-proto"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "jpeg-encoder",
  "rayon",
@@ -712,7 +712,7 @@ dependencies = [
 
 [[package]]
 name = "crossshell-view"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "arboard",
