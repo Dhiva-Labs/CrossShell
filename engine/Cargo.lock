@@ -702,9 +702,11 @@ dependencies = [
 name = "crossshell-proto"
 version = "0.1.1"
 dependencies = [
+ "anyhow",
  "flate2",
  "jpeg-encoder",
  "rayon",
+ "serde_json",
  "thiserror 2.0.21",
  "zstd",
  "zune-core",
