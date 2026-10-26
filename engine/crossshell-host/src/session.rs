@@ -52,11 +52,29 @@ pub struct SessionOptions {
 /// The one active session. A newly authenticated viewer takes over from the
 /// current one (the usual case is the same person reconnecting, or a
 /// session whose viewer vanished and hasn't timed out yet).
-#[derive(Default)]
 pub struct SessionSlot {
     active: Mutex<Option<Active>>,
     freed: Condvar,
     next_id: AtomicU64,
+    viewers: Mutex<Viewers>,
+}
+
+/// Authenticated connections, for `--exit-when-idle`.
+struct Viewers {
+    connected: u32,
+    /// When `connected` last dropped to 0 (or the slot was created).
+    idle_since: Instant,
+}
+
+impl Default for SessionSlot {
+    fn default() -> Self {
+        SessionSlot {
+            active: Mutex::default(),
+            freed: Condvar::new(),
+            next_id: AtomicU64::new(0),
+            viewers: Mutex::new(Viewers { connected: 0, idle_since: Instant::now() }),
+        }
+    }
 }
 
 struct Active {
@@ -69,6 +87,19 @@ struct Active {
 const TAKEOVER_WAIT: Duration = Duration::from_secs(3);
 
 impl SessionSlot {
+    /// `None` while an authenticated viewer is connected; otherwise how long
+    /// there has been none (since the slot was created, or since the last
+    /// authenticated viewer disconnected). Failed logins do not count.
+    pub fn idle_for(&self) -> Option<Duration> {
+        let v = self.viewers.lock().unwrap();
+        (v.connected == 0).then(|| v.idle_since.elapsed())
+    }
+
+    fn viewer_authenticated(&self) -> ViewerGuard<'_> {
+        self.viewers.lock().unwrap().connected += 1;
+        ViewerGuard(self)
+    }
+
     fn claim(&self, stream: &TcpStream, stop: &Arc<AtomicBool>) -> Option<SlotGuard<'_>> {
         let mut g = self.active.lock().unwrap();
         if let Some(old) = g.as_ref() {
@@ -99,6 +130,19 @@ impl Drop for SlotGuard<'_> {
             *g = None;
         }
         self.slot.freed.notify_all();
+    }
+}
+
+/// Counts one authenticated connection until it ends.
+struct ViewerGuard<'a>(&'a SessionSlot);
+
+impl Drop for ViewerGuard<'_> {
+    fn drop(&mut self) {
+        let mut v = self.0.viewers.lock().unwrap();
+        v.connected -= 1;
+        if v.connected == 0 {
+            v.idle_since = Instant::now();
+        }
     }
 }
 
@@ -164,6 +208,7 @@ pub fn serve_connection(mut stream: TcpStream, opts: &SessionOptions, slot: &Ses
         reject(&mut stream, &format!("protocol version {version} not supported (host speaks {VERSION})"));
         bail!("version mismatch");
     }
+    let _authenticated = slot.viewer_authenticated();
     let stop = Arc::new(AtomicBool::new(false));
     let Some(_slot) = slot.claim(&stream, &stop) else {
         reject(&mut stream, "busy: the previous session is still closing, try again");

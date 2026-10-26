@@ -12,9 +12,14 @@ use crossshell_proto::{Decoder, Encoding, Message, CAP_DEFLATE, MAX_PAYLOAD, VER
 const TOKEN: [u8; 32] = [0x5a; 32];
 
 fn spawn_host() -> u16 {
+    spawn_host_with_slot().0
+}
+
+fn spawn_host_with_slot() -> (u16, Arc<SessionSlot>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     let b = Arc::new(SessionSlot::default());
+    let slot = b.clone();
     std::thread::spawn(move || {
         let opts = Arc::new(SessionOptions { token: TOKEN, backend: BackendKind::Synthetic, runtime_dir: None, clipboard: false });
         for conn in listener.incoming() {
@@ -25,7 +30,7 @@ fn spawn_host() -> u16 {
             });
         }
     });
-    port
+    (port, slot)
 }
 
 fn connect(port: u16, token: [u8; 32]) -> (TcpStream, Message) {
@@ -129,6 +134,44 @@ fn deflate_is_used_only_when_negotiated() {
     let (accepted, seen) = lossless_session(!CAP_DEFLATE, 2);
     assert_eq!(accepted, 0);
     assert!(!seen.contains(&Encoding::Deflate), "{seen:?}");
+}
+
+/// Polls `cond` for up to 5 s.
+fn eventually(cond: impl Fn() -> bool) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        if cond() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    false
+}
+
+#[test]
+fn idle_time_counts_only_without_an_authenticated_viewer() {
+    let (port, slot) = spawn_host_with_slot();
+    std::thread::sleep(Duration::from_millis(100));
+    let before = slot.idle_for().expect("idle before any viewer");
+    assert!(before >= Duration::from_millis(100));
+
+    // A failed login does not reset the idle clock.
+    let (_s, reply) = connect(port, [0; 32]);
+    assert!(matches!(reply, Message::Reject { .. }));
+    assert!(slot.idle_for().unwrap() >= before);
+
+    let (mut s, welcome) = connect(port, TOKEN);
+    assert!(matches!(welcome, Message::Welcome { .. }));
+    assert_eq!(slot.idle_for(), None);
+    Message::Start { display: 0, quality: 1, max_fps: 30, view_only: true }.write_to(&mut s).unwrap();
+    assert!(matches!(Message::read_from(&mut s, MAX_PAYLOAD), Ok(_)));
+    assert_eq!(slot.idle_for(), None);
+
+    // Disconnect: the clock restarts from zero.
+    drop(s);
+    assert!(eventually(|| slot.idle_for().is_some()), "session never ended");
+    assert!(slot.idle_for().unwrap() < before + Duration::from_secs(5));
+    assert!(slot.idle_for().unwrap() < Duration::from_secs(5));
 }
 
 #[test]

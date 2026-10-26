@@ -7,7 +7,9 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 use std::net::{Ipv4Addr, TcpListener};
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Context;
 use crossshell_host::runtime::{self, HostInfo};
@@ -19,46 +21,73 @@ const USAGE: &str = "\
 crossshell-host — CrossShell screen-share agent
 
 USAGE:
-    crossshell-host [--port N] [--synthetic] [--no-clipboard]
-    crossshell-host --info      print host.json (port, token, pid)
+    crossshell-host [OPTIONS]
+    crossshell-host [--runtime-dir DIR] --info    print host.json (port, token, pid)
     crossshell-host --version
+
+OPTIONS:
+    --port N               preferred port on 127.0.0.1 (default 47821; any
+                           free port when it is taken, see host.json)
+    --synthetic            serve an animated test pattern, not the desktop
+    --no-clipboard         do not sync the clipboard with the viewer
+    --runtime-dir DIR      keep host.json, the instance lock, status.json and
+                           host.log in DIR (created 0700) instead of the
+                           per-user default
+    --exit-when-idle SECS  exit when no viewer has connected within SECS
+                           seconds of start, or SECS seconds after the last
+                           viewer left
 
 The agent listens on 127.0.0.1 only. Viewers connect through an SSH tunnel.";
 
+enum Action {
+    Run,
+    Info,
+    Version,
+    Help,
+}
+
 struct Args {
+    action: Action,
     port: u16,
     synthetic: bool,
     clipboard: bool,
+    runtime_dir: Option<PathBuf>,
+    exit_when_idle: Option<Duration>,
 }
 
-fn parse_args() -> anyhow::Result<Option<Args>> {
-    let mut a = Args { port: DEFAULT_HOST_PORT, synthetic: false, clipboard: true };
-    let mut it = std::env::args().skip(1);
+fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Args> {
+    let mut a = Args {
+        action: Action::Run,
+        port: DEFAULT_HOST_PORT,
+        synthetic: false,
+        clipboard: true,
+        runtime_dir: None,
+        exit_when_idle: None,
+    };
+    let mut it = args.into_iter();
     while let Some(arg) = it.next() {
+        let mut value = || it.next().with_context(|| format!("{arg} needs a value"));
         match arg.as_str() {
-            "--port" => a.port = it.next().context("--port needs a value")?.parse().context("bad --port")?,
+            "--port" => a.port = value()?.parse().context("bad --port")?,
             "--synthetic" => a.synthetic = true,
             "--no-clipboard" => a.clipboard = false,
-            "--info" => {
-                let dir = runtime::runtime_dir();
-                match runtime::read_host_info(&dir) {
-                    Some(i) => println!("{}", serde_json::to_string_pretty(&i)?),
-                    None => anyhow::bail!("no agent info at {}", runtime::host_json_path(&dir).display()),
-                }
-                return Ok(None);
+            "--runtime-dir" => {
+                let dir = PathBuf::from(value()?);
+                anyhow::ensure!(!dir.as_os_str().is_empty(), "--runtime-dir needs a path");
+                a.runtime_dir = Some(std::path::absolute(&dir).context("bad --runtime-dir")?);
             }
-            "--version" | "-V" => {
-                println!("crossshell-host {}", env!("CARGO_PKG_VERSION"));
-                return Ok(None);
+            "--exit-when-idle" => {
+                let secs: u64 = value()?.parse().context("bad --exit-when-idle (whole seconds)")?;
+                anyhow::ensure!(secs > 0, "--exit-when-idle needs at least 1 second");
+                a.exit_when_idle = Some(Duration::from_secs(secs));
             }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                return Ok(None);
-            }
+            "--info" => a.action = Action::Info,
+            "--version" | "-V" => a.action = Action::Version,
+            "--help" | "-h" => a.action = Action::Help,
             other => anyhow::bail!("unknown argument {other:?}\n\n{USAGE}"),
         }
     }
-    Ok(Some(a))
+    Ok(a)
 }
 
 fn main() {
@@ -70,14 +99,35 @@ fn main() {
 }
 
 fn run() -> anyhow::Result<()> {
-    let Some(args) = parse_args()? else { return Ok(()) };
-    let dir = runtime::runtime_dir();
+    let args = parse_args(std::env::args().skip(1))?;
+    let dir = args.runtime_dir.clone().unwrap_or_else(runtime::runtime_dir);
+    match args.action {
+        Action::Run => {}
+        Action::Info => {
+            match runtime::read_host_info(&dir) {
+                Some(i) => println!("{}", serde_json::to_string_pretty(&i)?),
+                None => anyhow::bail!("no agent info at {}", runtime::host_json_path(&dir).display()),
+            }
+            return Ok(());
+        }
+        Action::Version => {
+            println!("crossshell-host {}", env!("CARGO_PKG_VERSION"));
+            return Ok(());
+        }
+        Action::Help => {
+            println!("{USAGE}");
+            return Ok(());
+        }
+    }
     runtime::ensure_dir(&dir).with_context(|| format!("creating {}", dir.display()))?;
-    logger::init(Some(&runtime::log_path()));
+    // A private runtime dir keeps the log too, so a remote-launched agent
+    // leaves nothing behind outside it.
+    let log = if args.runtime_dir.is_some() { runtime::host_log_path(&dir) } else { runtime::log_path() };
+    logger::init(Some(&log));
     platform_init();
 
     let Some(_lock) = runtime::lock_instance(&dir)? else {
-        log::info!("another crossshell-host is already running; exiting");
+        log::info!("another crossshell-host is already running in {}; exiting", dir.display());
         return Ok(());
     };
     // A previous agent killed mid-session leaves its status behind.
@@ -99,8 +149,9 @@ fn run() -> anyhow::Result<()> {
     };
     runtime::write_host_info(&dir, &info)?;
     log::info!(
-        "listening on 127.0.0.1:{port} (backend: {})",
-        if args.synthetic { "synthetic" } else { "native" }
+        "listening on 127.0.0.1:{port} (backend: {}, runtime dir: {})",
+        if args.synthetic { "synthetic" } else { "native" },
+        dir.display()
     );
 
     let opts = Arc::new(SessionOptions {
@@ -110,6 +161,17 @@ fn run() -> anyhow::Result<()> {
         clipboard: args.clipboard,
     });
     let slot = Arc::new(SessionSlot::default());
+    if let Some(limit) = args.exit_when_idle {
+        let (slot, dir) = (slot.clone(), dir.clone());
+        std::thread::Builder::new().name("cs-idle".into()).spawn(move || loop {
+            std::thread::sleep(Duration::from_millis(250));
+            if slot.idle_for().is_some_and(|idle| idle >= limit) {
+                log::info!("no viewer for {}s; exiting (--exit-when-idle)", limit.as_secs());
+                runtime::remove_agent_files(&dir);
+                std::process::exit(0);
+            }
+        })?;
+    }
     for conn in listener.incoming() {
         let stream = match conn {
             Ok(s) => s,
@@ -127,4 +189,51 @@ fn run() -> anyhow::Result<()> {
         });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(a: &[&str]) -> anyhow::Result<Args> {
+        parse_args(a.iter().map(|s| s.to_string()))
+    }
+
+    #[test]
+    fn defaults_are_unchanged() {
+        let a = parse(&[]).unwrap();
+        assert!(matches!(a.action, Action::Run));
+        assert_eq!(a.port, DEFAULT_HOST_PORT);
+        assert!(!a.synthetic && a.clipboard);
+        assert!(a.runtime_dir.is_none() && a.exit_when_idle.is_none());
+    }
+
+    #[test]
+    fn remote_launch_flags() {
+        let a = parse(&["--runtime-dir", "rt", "--exit-when-idle", "30", "--synthetic"]).unwrap();
+        let dir = a.runtime_dir.unwrap();
+        assert!(dir.is_absolute() && dir.ends_with("rt"));
+        assert_eq!(a.exit_when_idle, Some(Duration::from_secs(30)));
+        assert!(a.synthetic);
+        // --info honours --runtime-dir whatever the order.
+        let a = parse(&["--info", "--runtime-dir", "/tmp/x"]).unwrap();
+        assert!(matches!(a.action, Action::Info));
+        assert_eq!(a.runtime_dir.as_deref(), Some(std::path::Path::new("/tmp/x")));
+    }
+
+    #[test]
+    fn bad_values_are_errors() {
+        for bad in [
+            &["--exit-when-idle", "0"][..],
+            &["--exit-when-idle", "-1"],
+            &["--exit-when-idle", "1.5"],
+            &["--exit-when-idle"],
+            &["--runtime-dir"],
+            &["--runtime-dir", ""],
+            &["--port", "x"],
+            &["--bogus"],
+        ] {
+            assert!(parse(bad).is_err(), "{bad:?}");
+        }
+    }
 }

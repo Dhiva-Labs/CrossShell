@@ -67,6 +67,11 @@ pub fn log_path() -> PathBuf {
     }
 }
 
+/// Where the agent writes its log when it was given its own runtime dir.
+pub fn host_log_path(dir: &Path) -> PathBuf {
+    dir.join("host.log")
+}
+
 /// Create the runtime dir, private to this user.
 pub fn ensure_dir(dir: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
@@ -130,6 +135,14 @@ pub fn write_host_info(dir: &Path, info: &HostInfo) -> std::io::Result<()> {
 
 pub fn read_host_info(dir: &Path) -> Option<HostInfo> {
     serde_json::from_slice(&fs::read(host_json_path(dir)).ok()?).ok()
+}
+
+/// Remove `host.json` and `status.json` when the agent exits on its own, so
+/// no reader mistakes them for a live agent. The lock file stays: it is
+/// released with the process.
+pub fn remove_agent_files(dir: &Path) {
+    let _ = fs::remove_file(host_json_path(dir));
+    let _ = fs::remove_file(status_json_path(dir));
 }
 
 /// Fresh 32-byte session token.
