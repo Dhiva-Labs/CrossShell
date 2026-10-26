@@ -2,15 +2,17 @@
 //!
 //! The encoder diffs each captured frame against the last frame it encoded,
 //! in 64×64 tiles, and picks an encoding per tile: `Fill` for flat tiles,
-//! zstd for few-colour tiles (text, UI chrome — stays pixel-exact), JPEG for
-//! photographic tiles when the quality allows it. Lossy tiles that then stay
-//! still are re-sent losslessly ("refinement") so a static screen always
-//! ends up pixel-exact.
+//! zstd (or zlib, see [`LosslessCodec`]) for few-colour tiles (text, UI
+//! chrome — stays pixel-exact), JPEG for photographic tiles when the quality
+//! allows it. Lossy tiles that then stay still are re-sent losslessly
+//! ("refinement") so a static screen always ends up pixel-exact.
+
+use std::io::Write;
 
 use rayon::prelude::*;
 
 use crate::msg::{Encoding, Rect};
-use crate::{Error, Result};
+use crate::{Error, Result, CAP_DEFLATE};
 
 pub const TILE: u32 = 64;
 /// Widest rect produced by merging a run of same-class tiles.
@@ -21,6 +23,32 @@ const PHOTO_COLORS: usize = 48;
 const REFINE_AFTER: u8 = 3;
 /// Largest frame dimension either end accepts.
 pub const MAX_DIMENSION: u32 = 16_384;
+/// zlib level for [`LosslessCodec::Deflate`]: miniz_oxide's fast greedy
+/// path, close to zstd level 1 in speed.
+const DEFLATE_LEVEL: u32 = 1;
+
+/// How the encoder compresses lossless (non-fill, non-JPEG) tiles. Both
+/// carry the same bytes: the rect's BGRX pixels, rows top to bottom.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LosslessCodec {
+    /// [`Encoding::Zstd`], level 1. What every viewer decodes.
+    #[default]
+    Zstd,
+    /// [`Encoding::Deflate`]: a zlib stream (RFC 1950). Only for viewers that
+    /// negotiated [`CAP_DEFLATE`].
+    Deflate,
+}
+
+impl LosslessCodec {
+    /// The codec for a session whose negotiated `Welcome.caps` are `caps`.
+    pub fn for_caps(caps: u32) -> Self {
+        if caps & CAP_DEFLATE != 0 {
+            LosslessCodec::Deflate
+        } else {
+            LosslessCodec::Zstd
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Quality {
@@ -83,6 +111,7 @@ enum Class {
 
 pub struct Encoder {
     quality: Quality,
+    lossless: LosslessCodec,
     width: u32,
     height: u32,
     /// Last encoded frame, tightly packed BGRX. Empty = send everything.
@@ -93,11 +122,28 @@ pub struct Encoder {
 
 impl Encoder {
     pub fn new(quality: Quality) -> Self {
-        Encoder { quality, width: 0, height: 0, prev: Vec::new(), lossy_age: Vec::new() }
+        Encoder {
+            quality,
+            lossless: LosslessCodec::Zstd,
+            width: 0,
+            height: 0,
+            prev: Vec::new(),
+            lossy_age: Vec::new(),
+        }
+    }
+
+    /// Compress lossless tiles with `codec` instead of zstd.
+    pub fn with_lossless_codec(mut self, codec: LosslessCodec) -> Self {
+        self.lossless = codec;
+        self
     }
 
     pub fn quality(&self) -> Quality {
         self.quality
+    }
+
+    pub fn lossless_codec(&self) -> LosslessCodec {
+        self.lossless
     }
 
     /// Change quality; the next encode resends the whole frame.
@@ -191,13 +237,14 @@ impl Encoder {
         }
 
         let jpeg_q = quality.jpeg_quality().unwrap_or(90);
+        let codec = self.lossless;
         let rects: Vec<Rect> = spans
             .into_par_iter()
             .map(|(ty, tx0, tx1, class)| {
                 let (x, y, _, h) = tile_rect(tx0, ty, frame.width, frame.height);
                 let x_end = (tx1 * TILE).min(frame.width);
                 let w = x_end - x;
-                encode_rect(frame, x, y, w, h, class, jpeg_q)
+                encode_rect(frame, x, y, w, h, class, jpeg_q, codec)
             })
             .collect();
 
@@ -269,7 +316,8 @@ fn gather(f: &FrameRef, x: u32, y: u32, w: u32, h: u32) -> Vec<u8> {
     out
 }
 
-fn encode_rect(f: &FrameRef, x: u32, y: u32, w: u32, h: u32, class: Class, jpeg_q: u8) -> Rect {
+#[allow(clippy::too_many_arguments)]
+fn encode_rect(f: &FrameRef, x: u32, y: u32, w: u32, h: u32, class: Class, jpeg_q: u8, codec: LosslessCodec) -> Rect {
     let mk = |encoding, data| Rect { x: x as u16, y: y as u16, w: w as u16, h: h as u16, encoding, data };
     match class {
         Class::Fill(c) => mk(Encoding::Fill, c.to_vec()),
@@ -279,17 +327,45 @@ fn encode_rect(f: &FrameRef, x: u32, y: u32, w: u32, h: u32, class: Class, jpeg_
             let enc = jpeg_encoder::Encoder::new(&mut out, jpeg_q);
             match enc.encode(&raw, w as u16, h as u16, jpeg_encoder::ColorType::Bgra) {
                 Ok(()) => mk(Encoding::Jpeg, out),
-                Err(_) => lossless(mk, raw),
+                Err(_) => lossless(mk, raw, codec),
             }
         }
-        Class::Lossless => lossless(mk, gather(f, x, y, w, h)),
+        Class::Lossless => lossless(mk, gather(f, x, y, w, h), codec),
     }
 }
 
-fn lossless(mk: impl Fn(Encoding, Vec<u8>) -> Rect, raw: Vec<u8>) -> Rect {
-    match zstd::bulk::compress(&raw, 1) {
-        Ok(z) if z.len() < raw.len() => mk(Encoding::Zstd, z),
+/// Compressed with `codec`, or `Raw` when that would not be smaller.
+fn lossless(mk: impl Fn(Encoding, Vec<u8>) -> Rect, raw: Vec<u8>, codec: LosslessCodec) -> Rect {
+    let packed = match codec {
+        LosslessCodec::Zstd => zstd::bulk::compress(&raw, 1).ok().map(|z| (Encoding::Zstd, z)),
+        LosslessCodec::Deflate => deflate(&raw).map(|z| (Encoding::Deflate, z)),
+    };
+    match packed {
+        Some((encoding, z)) if z.len() < raw.len() => mk(encoding, z),
         _ => mk(Encoding::Raw, raw),
+    }
+}
+
+/// One complete zlib stream (header, deflate data, Adler-32 trailer).
+fn deflate(raw: &[u8]) -> Option<Vec<u8>> {
+    let mut z = flate2::write::ZlibEncoder::new(
+        Vec::with_capacity(raw.len() / 4 + 64),
+        flate2::Compression::new(DEFLATE_LEVEL),
+    );
+    z.write_all(raw).ok()?;
+    z.finish().ok()
+}
+
+/// Inflate exactly one zlib stream that must decode to `expect` bytes. The
+/// output buffer is capped, so a hostile stream cannot inflate past it, and
+/// trailing bytes after the stream are an error.
+fn inflate(data: &[u8], expect: usize) -> Option<Vec<u8>> {
+    let mut d = flate2::Decompress::new(true);
+    // One spare byte tells "too long" apart from "exactly right".
+    let mut out = Vec::with_capacity(expect + 1);
+    match d.decompress_vec(data, &mut out, flate2::FlushDecompress::Finish) {
+        Ok(flate2::Status::StreamEnd) if out.len() == expect && d.total_in() == data.len() as u64 => Some(out),
+        _ => None,
     }
 }
 
@@ -375,6 +451,10 @@ fn decode_rect(r: &Rect) -> Result<Vec<u32>> {
             if raw.len() != n * 4 {
                 return Err(bad("wrong decompressed length"));
             }
+            Ok(bgrx_to_u32(&raw))
+        }
+        Encoding::Deflate => {
+            let raw = inflate(&r.data, n * 4).ok_or_else(|| bad("corrupt or wrong-length zlib stream"))?;
             Ok(bgrx_to_u32(&raw))
         }
         Encoding::Jpeg => {
@@ -539,6 +619,127 @@ mod tests {
         assert!(FrameRef::new(10, 10, 40, &[0; 399]).is_err());
         assert!(FrameRef::new(10, 10, 39, &[0; 400]).is_err());
         assert!(FrameRef::new(10, 10, 40, &[0; 400]).is_ok());
+    }
+
+    fn deflate_encoder(q: Quality) -> Encoder {
+        Encoder::new(q).with_lossless_codec(LosslessCodec::Deflate)
+    }
+
+    #[test]
+    fn codec_follows_the_negotiated_caps() {
+        assert_eq!(LosslessCodec::for_caps(0), LosslessCodec::Zstd);
+        assert_eq!(LosslessCodec::for_caps(CAP_DEFLATE), LosslessCodec::Deflate);
+        assert_eq!(LosslessCodec::for_caps(!0), LosslessCodec::Deflate);
+        assert_eq!(LosslessCodec::for_caps(!CAP_DEFLATE), LosslessCodec::Zstd);
+        assert_eq!(Encoder::new(Quality::Lossless).lossless_codec(), LosslessCodec::Zstd);
+    }
+
+    #[test]
+    fn default_encoder_never_sends_deflate() {
+        let (w, h) = (300, 170);
+        let img = image(w, h, 7);
+        for q in [Quality::Lossless, Quality::Balanced] {
+            let rects = Encoder::new(q).encode(&FrameRef::new(w, h, (w * 4) as usize, &img).unwrap());
+            assert!(rects.iter().any(|r| r.encoding == Encoding::Zstd));
+            assert!(rects.iter().all(|r| r.encoding != Encoding::Deflate));
+        }
+    }
+
+    #[test]
+    fn deflate_round_trip_is_exact() {
+        let (w, h) = (300, 170); // not tile multiples
+        let img = image(w, h, 7);
+        let mut enc = deflate_encoder(Quality::Lossless);
+        let mut dec = Decoder::new();
+        let rects = enc.encode(&FrameRef::new(w, h, (w * 4) as usize, &img).unwrap());
+        assert!(rects.iter().any(|r| r.encoding == Encoding::Deflate));
+        assert!(rects.iter().all(|r| r.encoding != Encoding::Zstd && r.encoding != Encoding::Jpeg));
+        dec.apply(w, h, &rects).unwrap();
+        assert_eq!(dec.pixels(), &to_u32(&img)[..]);
+    }
+
+    #[test]
+    fn deflate_payload_is_a_plain_zlib_stream_of_the_rect_pixels() {
+        use std::io::Read;
+        let (w, h) = (200, 100);
+        let img = image(w, h, 13);
+        let f = FrameRef::new(w, h, (w * 4) as usize, &img).unwrap();
+        let rects = deflate_encoder(Quality::Lossless).encode(&f);
+        let mut checked = 0;
+        for r in rects.iter().filter(|r| r.encoding == Encoding::Deflate) {
+            // RFC 1950 header: CM = 8 (deflate), header checksum.
+            assert_eq!(r.data[0] & 0x0f, 8);
+            assert_eq!(u16::from_be_bytes([r.data[0], r.data[1]]) % 31, 0);
+            let mut raw = Vec::new();
+            flate2::read::ZlibDecoder::new(&r.data[..]).read_to_end(&mut raw).unwrap();
+            // Exactly the rect's BGRX rows, X bytes included.
+            assert_eq!(raw, gather(&f, r.x.into(), r.y.into(), r.w.into(), r.h.into()));
+            checked += 1;
+        }
+        assert!(checked > 0);
+    }
+
+    #[test]
+    fn deflate_balanced_refines_to_exact_without_zstd() {
+        let (w, h) = (384, 192);
+        let img = image(w, h, 11);
+        let f = FrameRef::new(w, h, (w * 4) as usize, &img).unwrap();
+        let mut enc = deflate_encoder(Quality::Balanced);
+        let mut dec = Decoder::new();
+        let first = enc.encode(&f);
+        assert!(first.iter().any(|r| r.encoding == Encoding::Jpeg));
+        assert!(first.iter().any(|r| r.encoding == Encoding::Deflate));
+        dec.apply(w, h, &first).unwrap();
+        while enc.needs_refinement() {
+            let rects = enc.encode(&f);
+            assert!(rects.iter().all(|r| !matches!(r.encoding, Encoding::Jpeg | Encoding::Zstd)));
+            dec.apply(w, h, &rects).unwrap();
+        }
+        assert_eq!(dec.pixels(), &to_u32(&img)[..]);
+    }
+
+    #[test]
+    fn incompressible_tiles_fall_back_to_raw() {
+        // Pure noise does not shrink under zlib level 1.
+        let (w, h) = (64, 64);
+        let mut s = 0x9e37_79b9u32;
+        let img: Vec<u8> = (0..w * h * 4)
+            .map(|_| {
+                s ^= s << 13;
+                s ^= s >> 17;
+                s ^= s << 5;
+                s as u8
+            })
+            .collect();
+        let rects = deflate_encoder(Quality::Lossless).encode(&FrameRef::new(w, h, (w * 4) as usize, &img).unwrap());
+        assert_eq!(rects.len(), 1);
+        assert_eq!(rects[0].encoding, Encoding::Raw);
+        assert_eq!(rects[0].data, img);
+    }
+
+    #[test]
+    fn decoder_rejects_bad_deflate_rects() {
+        let px = vec![7u8; 2 * 2 * 4];
+        let good = deflate(&px).unwrap();
+        let rect = |data: Vec<u8>| Rect { x: 0, y: 0, w: 2, h: 2, encoding: Encoding::Deflate, data };
+        let mut dec = Decoder::new();
+        dec.apply(64, 64, &[rect(good.clone())]).unwrap();
+        assert_eq!(dec.pixels()[0], 0x0007_0707);
+        // Truncated (no Adler-32 trailer), corrupted checksum, trailing junk.
+        assert!(dec.apply(64, 64, &[rect(good[..good.len() - 4].to_vec())]).is_err());
+        let mut bad_sum = good.clone();
+        *bad_sum.last_mut().unwrap() ^= 1;
+        assert!(dec.apply(64, 64, &[rect(bad_sum)]).is_err());
+        let mut trailing = good.clone();
+        trailing.push(0);
+        assert!(dec.apply(64, 64, &[rect(trailing)]).is_err());
+        // Wrong length: one pixel short, one pixel long, and a "bomb".
+        assert!(dec.apply(64, 64, &[rect(deflate(&px[..12]).unwrap())]).is_err());
+        assert!(dec.apply(64, 64, &[rect(deflate(&[7u8; 20]).unwrap())]).is_err());
+        assert!(dec.apply(64, 64, &[rect(deflate(&vec![0u8; 1 << 20]).unwrap())]).is_err());
+        // Raw deflate without the zlib wrapper, and junk.
+        assert!(dec.apply(64, 64, &[rect(good[2..good.len() - 4].to_vec())]).is_err());
+        assert!(dec.apply(64, 64, &[rect(vec![1, 2, 3])]).is_err());
     }
 
     #[test]
