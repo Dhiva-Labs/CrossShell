@@ -142,10 +142,18 @@ for spec in "${flavours[@]}"; do
       skip "$name" "libpipewire-0.3 headers not found (see engine/platform-linux/BUILDING.md)"
       continue
     fi
+    # zig links against its own glibc stubs and searches no system folder,
+    # so a libpipewire in /usr/lib/<arch> (CI's, from apt) is not found.
+    # Pointing it at that whole folder would also offer the newer system
+    # libc; a folder holding only the one link is enough.
+    pwdir=$(PKG_CONFIG_PATH=$pc pkg-config --variable=libdir libpipewire-0.3)
+    pwlink="$root/engine/target/pipewire-link/$arch"
+    mkdir -p "$pwlink"
+    ln -sfn "$pwdir/libpipewire-0.3.so" "$pwlink/libpipewire-0.3.so"
     # The build machine's libpipewire was linked against a newer glibc than
     # the baseline; its own symbols are resolved on the remote at load time.
     tvar="CARGO_TARGET_$(echo "$target" | tr 'a-z-' 'A-Z_')_RUSTFLAGS"
-    env_vars+=("PKG_CONFIG_PATH=$pc" "$tvar=${!tvar:+${!tvar} }-C link-arg=-Wl,--allow-shlib-undefined")
+    env_vars+=("PKG_CONFIG_PATH=$pc" "$tvar=${!tvar:+${!tvar} }-L native=$pwlink -C link-arg=-Wl,--allow-shlib-undefined")
   fi
 
   echo "== $name ($zig_target${features:+, $features})"
