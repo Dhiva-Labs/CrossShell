@@ -2,16 +2,20 @@
 //! PNG. Works through an SSH tunnel too.
 //!
 //!     cargo run --release --example snapshot -- --port 47821 --token <hex> \
-//!         [--out shot.png] [--frames 20] [--display 0] [--quality 1] [--move X,Y]
+//!         [--out shot.png] [--frames 20] [--display 0] [--quality 1] [--move X,Y] [--deflate]
 //!
 //! `--token -` reads the token from stdin. `--move` injects one pointer
 //! motion after the first frame (pointer motion only — never clicks/keys).
+//! `--deflate` offers `CAP_DEFLATE`, as SecureShell Go's viewer does, and
+//! fails unless the host accepts it.
 
 use std::io::BufRead;
 use std::net::TcpStream;
 use std::time::{Duration, Instant};
 
-use crossshell_proto::{from_hex, Decoder, Message, MAX_PAYLOAD, VERSION};
+use std::collections::BTreeMap;
+
+use crossshell_proto::{from_hex, Decoder, Message, CAP_DEFLATE, MAX_PAYLOAD, VERSION};
 
 fn main() -> anyhow::Result<()> {
     let mut port = crossshell_proto::DEFAULT_HOST_PORT;
@@ -21,6 +25,7 @@ fn main() -> anyhow::Result<()> {
     let mut display = 0u8;
     let mut quality = 1u8;
     let mut mv: Option<(i32, i32)> = None;
+    let mut caps = 0u32;
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         let mut v = || it.next().ok_or_else(|| anyhow::anyhow!("{a} needs a value"));
@@ -36,6 +41,7 @@ fn main() -> anyhow::Result<()> {
                 let (x, y) = s.split_once(',').ok_or_else(|| anyhow::anyhow!("--move X,Y"))?;
                 mv = Some((x.parse()?, y.parse()?));
             }
+            "--deflate" => caps |= CAP_DEFLATE,
             _ => anyhow::bail!("unknown arg {a}"),
         }
     }
@@ -49,9 +55,13 @@ fn main() -> anyhow::Result<()> {
 
     let mut s = TcpStream::connect(("127.0.0.1", port))?;
     s.set_read_timeout(Some(Duration::from_secs(120)))?;
-    Message::Hello { version: VERSION, token, viewer_name: "snapshot".into(), caps: 0 }.write_to(&mut s)?;
+    Message::Hello { version: VERSION, token, viewer_name: "snapshot".into(), caps }.write_to(&mut s)?;
     let displays = match Message::read_from(&mut s, MAX_PAYLOAD)? {
-        Message::Welcome { displays, .. } => displays,
+        Message::Welcome { displays, caps: accepted, .. } => {
+            eprintln!("welcome caps {accepted:#x} (offered {caps:#x})");
+            anyhow::ensure!(accepted & caps == caps, "host did not accept caps {caps:#x}");
+            displays
+        }
         Message::Reject { reason } => anyhow::bail!("rejected: {reason}"),
         m => anyhow::bail!("unexpected {m:?}"),
     };
@@ -63,6 +73,7 @@ fn main() -> anyhow::Result<()> {
     let mut dec = Decoder::new();
     let started = Instant::now();
     let (mut got, mut bytes) = (0u32, 0usize);
+    let mut encodings: BTreeMap<String, usize> = BTreeMap::new();
     // Ping from a separate thread so a static screen (no frames) doesn't
     // let the host's 15 s idle timeout fire.
     let mut pinger = s.try_clone()?;
@@ -77,6 +88,9 @@ fn main() -> anyhow::Result<()> {
         match Message::read_from(&mut s, MAX_PAYLOAD)? {
             Message::Frame { seq, width, height, rects } => {
                 bytes += rects.iter().map(|r| r.data.len()).sum::<usize>();
+                for r in &rects {
+                    *encodings.entry(format!("{:?}", r.encoding)).or_default() += 1;
+                }
                 dec.apply(width, height, &rects)?;
                 Message::FrameAck { seq }.write_to(&mut s)?;
                 got += 1;
@@ -95,6 +109,7 @@ fn main() -> anyhow::Result<()> {
     }
     let secs = started.elapsed().as_secs_f64();
     eprintln!("{got} frames, {:.1} KiB, {:.1} fps over {secs:.1}s", bytes as f64 / 1024.0, got as f64 / secs);
+    eprintln!("rects by encoding: {encodings:?}");
 
     let (w, h) = (dec.width(), dec.height());
     let mut rgb = Vec::with_capacity((w * h * 3) as usize);

@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use crossshell_host::session::{serve_connection, SessionOptions, SessionSlot};
 use crossshell_host::BackendKind;
-use crossshell_proto::{Decoder, Message, MAX_PAYLOAD, VERSION};
+use crossshell_proto::{Decoder, Encoding, Message, CAP_DEFLATE, MAX_PAYLOAD, VERSION};
 
 const TOKEN: [u8; 32] = [0x5a; 32];
 
@@ -29,9 +29,13 @@ fn spawn_host() -> u16 {
 }
 
 fn connect(port: u16, token: [u8; 32]) -> (TcpStream, Message) {
+    connect_with_caps(port, token, 0)
+}
+
+fn connect_with_caps(port: u16, token: [u8; 32], caps: u32) -> (TcpStream, Message) {
     let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
     s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
-    Message::Hello { version: VERSION, token, viewer_name: "test-viewer".into(), caps: 0 }.write_to(&mut s).unwrap();
+    Message::Hello { version: VERSION, token, viewer_name: "test-viewer".into(), caps }.write_to(&mut s).unwrap();
     let reply = Message::read_from(&mut s, MAX_PAYLOAD).unwrap();
     (s, reply)
 }
@@ -85,6 +89,46 @@ fn full_session_streams_frames_and_takes_input() {
     // The synthetic pattern draws a white crosshair at the injected pointer.
     let px = dec.pixels()[(360 * d.width + 640) as usize];
     assert_eq!(px, 0x00ff_ffff);
+}
+
+/// Lossless frames from a session with the given Hello caps: the Welcome
+/// caps, and the rect encodings seen across `n` decoded frames.
+fn lossless_session(caps: u32, n: usize) -> (u32, Vec<Encoding>) {
+    let port = spawn_host();
+    let (mut s, welcome) = connect_with_caps(port, TOKEN, caps);
+    let Message::Welcome { caps: accepted, .. } = welcome else { panic!("expected welcome, got {welcome:?}") };
+    Message::Start { display: 0, quality: 0, max_fps: 60, view_only: true }.write_to(&mut s).unwrap();
+    let mut dec = Decoder::new();
+    let mut seen = Vec::new();
+    let mut frames = 0;
+    while frames < n {
+        if let Message::Frame { seq, width, height, rects } = Message::read_from(&mut s, MAX_PAYLOAD).unwrap() {
+            dec.apply(width, height, &rects).unwrap();
+            seen.extend(rects.iter().map(|r| r.encoding));
+            Message::FrameAck { seq }.write_to(&mut s).unwrap();
+            frames += 1;
+        }
+    }
+    (accepted, seen)
+}
+
+#[test]
+fn deflate_is_used_only_when_negotiated() {
+    let (accepted, seen) = lossless_session(CAP_DEFLATE, 5);
+    assert_eq!(accepted, CAP_DEFLATE);
+    assert!(seen.contains(&Encoding::Deflate), "{seen:?}");
+    assert!(!seen.contains(&Encoding::Zstd), "{seen:?}");
+
+    // Viewers that send 0 (CrossShell's own) get zstd, exactly as before.
+    let (accepted, seen) = lossless_session(0, 5);
+    assert_eq!(accepted, 0);
+    assert!(seen.contains(&Encoding::Zstd), "{seen:?}");
+    assert!(!seen.contains(&Encoding::Deflate), "{seen:?}");
+
+    // Unknown bits are not echoed.
+    let (accepted, seen) = lossless_session(!CAP_DEFLATE, 2);
+    assert_eq!(accepted, 0);
+    assert!(!seen.contains(&Encoding::Deflate), "{seen:?}");
 }
 
 #[test]

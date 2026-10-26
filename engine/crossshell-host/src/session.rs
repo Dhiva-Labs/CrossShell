@@ -20,7 +20,8 @@ use anyhow::{anyhow, bail, Context};
 use crossshell_platform::{Backend, Capture, Capturer, DisplayInfo, Injector};
 use crossshell_proto::msg::level;
 use crossshell_proto::{
-    token_eq, Encoder, FrameRef, Message, MessageReader, Quality, MAX_INFLIGHT_FRAMES, MAX_PREAUTH_PAYLOAD, TOKEN_LEN, VERSION,
+    token_eq, Encoder, FrameRef, LosslessCodec, Message, MessageReader, Quality, HOST_CAPS, MAX_INFLIGHT_FRAMES,
+    MAX_PREAUTH_PAYLOAD, TOKEN_LEN, VERSION,
 };
 
 use crate::clipboard::ClipboardSync;
@@ -151,7 +152,7 @@ pub fn serve_connection(mut stream: TcpStream, opts: &SessionOptions, slot: &Ses
 
     // --- Hello: authenticate before anything else.
     let hello = Message::read_from(&mut stream, MAX_PREAUTH_PAYLOAD).context("reading hello")?;
-    let Message::Hello { version, token, viewer_name, .. } = hello else {
+    let Message::Hello { version, token, viewer_name, caps } = hello else {
         reject(&mut stream, "expected hello");
         bail!("first message was not hello");
     };
@@ -169,7 +170,10 @@ pub fn serve_connection(mut stream: TcpStream, opts: &SessionOptions, slot: &Ses
         return Ok(());
     };
     let viewer = sanitize_name(&viewer_name);
-    log::info!("viewer {viewer:?} authenticated");
+    // Capabilities both ends have; unknown bits are ignored.
+    let caps = caps & HOST_CAPS;
+    let codec = LosslessCodec::for_caps(caps);
+    log::info!("viewer {viewer:?} authenticated (caps {caps:#x}, lossless tiles: {codec:?})");
 
     // --- Backend + Welcome. On Wayland this may wait for the consent dialog.
     let mut backend = match crate::start_backend(opts.backend) {
@@ -190,7 +194,7 @@ pub fn serve_connection(mut stream: TcpStream, opts: &SessionOptions, slot: &Ses
             return Err(e);
         }
     };
-    Message::Welcome { version: VERSION, caps: 0, displays: displays.clone() }.write_to(&mut stream)?;
+    Message::Welcome { version: VERSION, caps, displays: displays.clone() }.write_to(&mut stream)?;
 
     // --- Start.
     let start = Message::read_from(&mut stream, MAX_PREAUTH_PAYLOAD).context("reading start")?;
@@ -247,7 +251,7 @@ pub fn serve_connection(mut stream: TcpStream, opts: &SessionOptions, slot: &Ses
         let q = Quality::from_u8(quality);
         std::thread::Builder::new()
             .name("cs-capture".into())
-            .spawn(move || capture_loop(ctx, capturer, q, max_fps))?
+            .spawn(move || capture_loop(ctx, capturer, q, codec, max_fps))?
     };
 
     let clipboard = opts.clipboard.then(|| Arc::new(ClipboardSync::new()));
@@ -372,8 +376,8 @@ fn frame_interval(max_fps: u8) -> Duration {
     (Duration::from_secs(1) / u32::from(max_fps.clamp(1, 120))).saturating_sub(Duration::from_millis(4))
 }
 
-fn capture_loop(ctx: CaptureCtx, capturer: Box<dyn Capturer>, quality: Quality, max_fps: u8) {
-    if let Err(e) = capture_loop_inner(&ctx, capturer, quality, max_fps) {
+fn capture_loop(ctx: CaptureCtx, capturer: Box<dyn Capturer>, quality: Quality, codec: LosslessCodec, max_fps: u8) {
+    if let Err(e) = capture_loop_inner(&ctx, capturer, quality, codec, max_fps) {
         if !ctx.stop.load(Ordering::SeqCst) {
             log::error!("capture failed: {e:#}");
             let _ = ctx.tx.send(Message::Notice { level: level::ERROR, text: format!("capture failed: {e:#}") });
@@ -388,9 +392,10 @@ fn capture_loop_inner(
     ctx: &CaptureCtx,
     mut capturer: Box<dyn Capturer>,
     quality: Quality,
+    codec: LosslessCodec,
     max_fps: u8,
 ) -> anyhow::Result<()> {
-    let mut encoder = Encoder::new(quality);
+    let mut encoder = Encoder::new(quality).with_lossless_codec(codec);
     let mut interval = frame_interval(max_fps);
     // Latest captured frame, tightly packed BGRX.
     let mut latest: Vec<u8> = Vec::new();
@@ -406,7 +411,7 @@ fn capture_loop_inner(
         let select = ctx.flow.lock().unwrap().select.take();
         if let Some((display, q, fps)) = select {
             capturer = ctx.backend.lock().unwrap().capturer(display)?;
-            encoder = Encoder::new(Quality::from_u8(q));
+            encoder = Encoder::new(Quality::from_u8(q)).with_lossless_codec(codec);
             interval = frame_interval(fps);
             latest.clear();
             dirty = false;
