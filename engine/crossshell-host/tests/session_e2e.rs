@@ -164,7 +164,7 @@ fn idle_time_counts_only_without_an_authenticated_viewer() {
     assert!(matches!(welcome, Message::Welcome { .. }));
     assert_eq!(slot.idle_for(), None);
     Message::Start { display: 0, quality: 1, max_fps: 30, view_only: true }.write_to(&mut s).unwrap();
-    assert!(matches!(Message::read_from(&mut s, MAX_PAYLOAD), Ok(_)));
+    assert!(Message::read_from(&mut s, MAX_PAYLOAD).is_ok());
     assert_eq!(slot.idle_for(), None);
 
     // Disconnect: the clock restarts from zero.
