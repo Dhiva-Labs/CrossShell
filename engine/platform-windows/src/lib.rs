@@ -6,6 +6,7 @@ mod cursor;
 mod desktop;
 mod displays;
 mod input;
+pub mod notify;
 
 use std::sync::Once;
 

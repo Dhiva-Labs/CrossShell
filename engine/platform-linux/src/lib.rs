@@ -15,6 +15,7 @@ mod convert;
 mod dbus;
 mod input;
 mod mutter;
+pub mod notify;
 mod portal;
 mod pw;
 mod x11;

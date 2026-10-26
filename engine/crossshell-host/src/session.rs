@@ -25,6 +25,7 @@ use crossshell_proto::{
 };
 
 use crate::clipboard::ClipboardSync;
+use crate::notify::{self, ViewerNotice};
 use crate::runtime::{self, SessionStatus};
 use crate::BackendKind;
 
@@ -47,6 +48,8 @@ pub struct SessionOptions {
     /// Where to write `status.json` while a viewer is connected.
     pub runtime_dir: Option<PathBuf>,
     pub clipboard: bool,
+    /// Show a desktop notification while a viewer is connected.
+    pub notify: bool,
 }
 
 /// The one active session. A newly authenticated viewer takes over from the
@@ -163,11 +166,6 @@ fn reject(stream: &mut TcpStream, reason: &str) {
     let _ = stream.shutdown(Shutdown::Both);
 }
 
-fn sanitize_name(s: &str) -> String {
-    let s: String = s.chars().filter(|c| !c.is_control()).take(64).collect();
-    if s.trim().is_empty() { "viewer".into() } else { s }
-}
-
 #[derive(Default)]
 struct Flow {
     sent: u32,
@@ -214,7 +212,7 @@ pub fn serve_connection(mut stream: TcpStream, opts: &SessionOptions, slot: &Ses
         reject(&mut stream, "busy: the previous session is still closing, try again");
         return Ok(());
     };
-    let viewer = sanitize_name(&viewer_name);
+    let viewer = notify::clean_viewer_name(&viewer_name);
     // Capabilities both ends have; unknown bits are ignored.
     let caps = caps & HOST_CAPS;
     let codec = LosslessCodec::for_caps(caps);
@@ -262,6 +260,7 @@ pub fn serve_connection(mut stream: TcpStream, opts: &SessionOptions, slot: &Ses
         let _ = runtime::write_private(p, serde_json::to_string(&st)?.as_bytes());
     }
     let _status = StatusGuard(status_path);
+    let _notice = opts.notify.then(|| ViewerNotice::show(&viewer, view_only));
 
     let capturer = backend.capturer(current.index)?;
     let mut injector = if view_only { None } else { Some(backend.injector(current.index)?) };

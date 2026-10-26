@@ -2,6 +2,7 @@
 
 pub mod clipboard;
 pub mod logger;
+pub mod notify;
 pub mod runtime;
 pub mod session;
 

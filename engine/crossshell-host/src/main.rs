@@ -30,6 +30,7 @@ OPTIONS:
                            free port when it is taken, see host.json)
     --synthetic            serve an animated test pattern, not the desktop
     --no-clipboard         do not sync the clipboard with the viewer
+    --no-notify            no desktop notification while a viewer is connected
     --runtime-dir DIR      keep host.json, the instance lock, status.json and
                            host.log in DIR (created 0700) instead of the
                            per-user default
@@ -51,6 +52,7 @@ struct Args {
     port: u16,
     synthetic: bool,
     clipboard: bool,
+    notify: bool,
     runtime_dir: Option<PathBuf>,
     exit_when_idle: Option<Duration>,
 }
@@ -61,6 +63,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Args> {
         port: DEFAULT_HOST_PORT,
         synthetic: false,
         clipboard: true,
+        notify: true,
         runtime_dir: None,
         exit_when_idle: None,
     };
@@ -71,6 +74,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Args> {
             "--port" => a.port = value()?.parse().context("bad --port")?,
             "--synthetic" => a.synthetic = true,
             "--no-clipboard" => a.clipboard = false,
+            "--no-notify" => a.notify = false,
             "--runtime-dir" => {
                 let dir = PathBuf::from(value()?);
                 anyhow::ensure!(!dir.as_os_str().is_empty(), "--runtime-dir needs a path");
@@ -159,6 +163,7 @@ fn run() -> anyhow::Result<()> {
         backend: if args.synthetic { BackendKind::Synthetic } else { BackendKind::Native },
         runtime_dir: Some(dir.clone()),
         clipboard: args.clipboard,
+        notify: args.notify,
     });
     let slot = Arc::new(SessionSlot::default());
     if let Some(limit) = args.exit_when_idle {
@@ -204,17 +209,17 @@ mod tests {
         let a = parse(&[]).unwrap();
         assert!(matches!(a.action, Action::Run));
         assert_eq!(a.port, DEFAULT_HOST_PORT);
-        assert!(!a.synthetic && a.clipboard);
+        assert!(!a.synthetic && a.clipboard && a.notify);
         assert!(a.runtime_dir.is_none() && a.exit_when_idle.is_none());
     }
 
     #[test]
     fn remote_launch_flags() {
-        let a = parse(&["--runtime-dir", "rt", "--exit-when-idle", "30", "--synthetic"]).unwrap();
+        let a = parse(&["--runtime-dir", "rt", "--exit-when-idle", "30", "--no-notify", "--synthetic"]).unwrap();
         let dir = a.runtime_dir.unwrap();
         assert!(dir.is_absolute() && dir.ends_with("rt"));
         assert_eq!(a.exit_when_idle, Some(Duration::from_secs(30)));
-        assert!(a.synthetic);
+        assert!(!a.notify && a.synthetic);
         // --info honours --runtime-dir whatever the order.
         let a = parse(&["--info", "--runtime-dir", "/tmp/x"]).unwrap();
         assert!(matches!(a.action, Action::Info));

@@ -21,7 +21,7 @@ fn spawn_host_with_slot() -> (u16, Arc<SessionSlot>) {
     let b = Arc::new(SessionSlot::default());
     let slot = b.clone();
     std::thread::spawn(move || {
-        let opts = Arc::new(SessionOptions { token: TOKEN, backend: BackendKind::Synthetic, runtime_dir: None, clipboard: false });
+        let opts = Arc::new(SessionOptions { token: TOKEN, backend: BackendKind::Synthetic, runtime_dir: None, clipboard: false, notify: false });
         for conn in listener.incoming() {
             let (opts, b) = (opts.clone(), b.clone());
             let s = conn.unwrap();
