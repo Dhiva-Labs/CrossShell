@@ -45,6 +45,38 @@ export LIBCLANG_PATH=/usr/lib/llvm-21/lib
 export BINDGEN_EXTRA_CLANG_ARGS="-I$ROOT/usr/include/spa-0.2 -I$ROOT/usr/include/pipewire-0.3"
 ```
 
+## Build flavours
+
+- **Full** (default features): Mutter, portal and X11. Links
+  `libpipewire-0.3.so.0`, so it does not start where PipeWire is missing.
+- **X11 only** (`--no-default-features`, which drops the `pipewire` feature
+  of this crate and of `crossshell-host`): needs no PipeWire headers, links
+  no C library, and builds fully static for musl.
+
+Both are cross-built with [cargo-zigbuild](https://github.com/rust-cross/cargo-zigbuild)
+(`pip install cargo-zigbuild` brings zig too) by `scripts/build-agents.sh`,
+which writes the standalone agents to `dist/agents/`:
+
+```sh
+# X11 only, static (any Linux, x86_64 or aarch64):
+cargo zigbuild --release -p crossshell-host --no-default-features --target x86_64-unknown-linux-musl
+cargo zigbuild --release -p crossshell-host --no-default-features --target aarch64-unknown-linux-musl
+file target/x86_64-unknown-linux-musl/release/crossshell-host   # "statically linked"
+
+# Full, glibc 2.31 baseline (PKG_CONFIG_PATH as above):
+CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-C link-arg=-Wl,--allow-shlib-undefined" \
+  cargo zigbuild --release -p crossshell-host --target x86_64-unknown-linux-gnu.2.31
+```
+
+The full build links against this machine's `libpipewire-0.3.so`, which
+itself needs a newer glibc than 2.31; `--allow-shlib-undefined` tells lld
+not to check the library's own symbols, which the remote's libpipewire and
+glibc provide at load time. The binary itself needs glibc ≤ 2.31 symbols
+only, and from libpipewire only `pw_init`, `pw_context_*`, `pw_main_loop_*`,
+`pw_properties_*` and `pw_stream_*` calls that every PipeWire 0.3 release
+has. The aarch64 full build needs aarch64 PipeWire libraries, so it is made
+on an aarch64 machine (CI's arm runner).
+
 ## Testing without touching your desktop
 
 `examples/probe.rs` drives the backend directly (`--display N --seconds S
