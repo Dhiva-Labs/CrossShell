@@ -2,6 +2,7 @@
 //! straight RGBA.
 
 /// Where the colour (and alpha) bytes sit inside a 4-byte pixel.
+#[cfg_attr(not(feature = "pipewire"), allow(dead_code))] // PipeWire formats
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Channels {
     pub r: usize,
@@ -10,6 +11,7 @@ pub struct Channels {
     pub a: Option<usize>,
 }
 
+#[cfg_attr(not(feature = "pipewire"), allow(dead_code))]
 impl Channels {
     pub const BGRX: Channels = Channels { r: 2, g: 1, b: 0, a: None };
     pub const BGRA: Channels = Channels { r: 2, g: 1, b: 0, a: Some(3) };
@@ -30,6 +32,7 @@ impl Channels {
 /// packed BGRX. `dst` is resized to `width * height * 4`.
 ///
 /// Returns `false` (leaving `dst` untouched) if `src` is too short.
+#[cfg_attr(not(feature = "pipewire"), allow(dead_code))]
 pub fn to_bgrx(src: &[u8], stride: usize, width: usize, height: usize, ch: Channels, dst: &mut Vec<u8>) -> bool {
     let row = width * 4;
     if width == 0 || height == 0 || stride < row || src.len() < stride * (height - 1) + row {
@@ -60,6 +63,7 @@ pub fn to_bgrx(src: &[u8], stride: usize, width: usize, height: usize, ch: Chann
 /// Convert a cursor image to straight RGBA. Images without an alpha channel
 /// come out opaque. Premultiplied alpha is detected (no colour value above
 /// its alpha anywhere) and undone, which is what compositors hand out.
+#[cfg_attr(not(feature = "pipewire"), allow(dead_code))]
 pub fn cursor_to_rgba(src: &[u8], stride: usize, width: usize, height: usize, ch: Channels) -> Option<Vec<u8>> {
     let row = width * 4;
     if width == 0 || height == 0 || stride < row || src.len() < stride * (height - 1) + row {

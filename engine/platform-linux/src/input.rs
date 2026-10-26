@@ -1,14 +1,18 @@
 //! Input helpers shared by the backends: button and scroll mapping, frame
 //! pixel → compositor coordinate mapping, and the injector used by both
-//! D-Bus remote-desktop APIs (Mutter and the portal).
+//! D-Bus remote-desktop APIs (Mutter and the portal, `pipewire` feature).
 
+#[cfg(feature = "pipewire")]
 use std::sync::{Arc, Mutex};
 
+#[cfg(feature = "pipewire")]
 use crossshell_platform::Injector;
+#[cfg(feature = "pipewire")]
 use crossshell_proto::keymap::evdev;
 use crossshell_proto::msg::button;
 
 /// Wire button → evdev `BTN_*` code.
+#[cfg(feature = "pipewire")]
 pub fn evdev_button(b: u8) -> Option<u16> {
     match b {
         button::LEFT => Some(evdev::BTN_LEFT),
@@ -75,6 +79,7 @@ pub fn x11_scroll_buttons(nx: i32, ny: i32) -> Vec<u8> {
 
 /// What a remote-desktop API needs to know to place the pointer on one
 /// stream, kept up to date by the capturer of that stream.
+#[cfg(feature = "pipewire")]
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct Geometry {
     /// Size of the buffers PipeWire delivers (0 until negotiated).
@@ -86,6 +91,7 @@ pub struct Geometry {
     pub logical: Option<(f64, f64)>,
 }
 
+#[cfg(feature = "pipewire")]
 impl Geometry {
     /// Frame pixel → API coordinate.
     pub fn map(&self, x: i32, y: i32) -> (f64, f64) {
@@ -99,9 +105,11 @@ impl Geometry {
     }
 }
 
+#[cfg(feature = "pipewire")]
 pub type SharedGeometry = Arc<Mutex<Geometry>>;
 
 /// The `Notify*` calls both remote-desktop D-Bus APIs offer.
+#[cfg(feature = "pipewire")]
 pub trait RemoteInput: Send {
     /// `wait` = block until the compositor has taken the event; otherwise
     /// fire and forget (motion is frequent and ordered by the bus anyway).
@@ -113,6 +121,7 @@ pub trait RemoteInput: Send {
 }
 
 /// [`Injector`] over a [`RemoteInput`] for one stream.
+#[cfg(feature = "pipewire")]
 pub struct StreamInjector<R> {
     input: R,
     geometry: SharedGeometry,
@@ -121,10 +130,13 @@ pub struct StreamInjector<R> {
 }
 
 /// evdev `KEY_UNKNOWN`: `<I248>`, `NoSymbol` in every XKB layout.
+#[cfg(feature = "pipewire")]
 const KEY_UNKNOWN: u16 = 240;
 /// Pause between the two first motions (about one compositor frame).
+#[cfg(feature = "pipewire")]
 const SETTLE: std::time::Duration = std::time::Duration::from_millis(20);
 
+#[cfg(feature = "pipewire")]
 impl<R: RemoteInput> StreamInjector<R> {
     /// Wrap `input` and wake its virtual keyboard: on a seat without a
     /// keyboard (headless, or a mini PC with none attached) the compositor
@@ -139,6 +151,7 @@ impl<R: RemoteInput> StreamInjector<R> {
     }
 }
 
+#[cfg(feature = "pipewire")]
 impl<R: RemoteInput> Injector for StreamInjector<R> {
     fn pointer_move(&mut self, x: i32, y: i32) -> anyhow::Result<()> {
         let (sx, sy) = self.geometry.lock().unwrap().map(x, y);
@@ -182,13 +195,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn buttons_map_to_evdev_and_x11() {
+    #[cfg(feature = "pipewire")]
+    fn buttons_map_to_evdev() {
         assert_eq!(evdev_button(button::LEFT), Some(0x110));
         assert_eq!(evdev_button(button::RIGHT), Some(0x111));
         assert_eq!(evdev_button(button::MIDDLE), Some(0x112));
         assert_eq!(evdev_button(button::BACK), Some(0x113));
         assert_eq!(evdev_button(button::FORWARD), Some(0x114));
         assert_eq!(evdev_button(9), None);
+    }
+
+    #[test]
+    fn buttons_map_to_x11() {
         assert_eq!([1, 2, 3, 4, 5].map(x11_button), [Some(1), Some(2), Some(3), Some(8), Some(9)]);
         assert_eq!(x11_button(0), None);
     }
@@ -224,6 +242,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "pipewire")]
     fn geometry_maps_pixels_crop_and_logical_space() {
         let mut g = Geometry::default();
         assert_eq!(g.map(10, 20), (10.0, 20.0));
@@ -237,8 +256,10 @@ mod tests {
         assert_eq!(g.map(3, 4), (3.0, 4.0));
     }
 
+    #[cfg(feature = "pipewire")]
     #[derive(Default)]
     struct Rec(Vec<String>);
+    #[cfg(feature = "pipewire")]
     impl RemoteInput for Rec {
         fn motion_absolute(&mut self, x: f64, y: f64, wait: bool) -> anyhow::Result<()> {
             self.0.push(format!("m {x} {y}{}", if wait { " wait" } else { "" }));
@@ -259,6 +280,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "pipewire")]
     fn stream_injector_translates_wire_input() {
         let geo = Arc::new(Mutex::new(Geometry { buffer: (2560, 1440), crop: (0, 0), logical: None }));
         let mut inj = StreamInjector::new(Rec::default(), geo);

@@ -115,7 +115,7 @@ fn run() -> anyhow::Result<()> {
             return Ok(());
         }
         Action::Version => {
-            println!("crossshell-host {}", env!("CARGO_PKG_VERSION"));
+            println!("crossshell-host {} (backends: {})", env!("CARGO_PKG_VERSION"), crossshell_host::flavour());
             return Ok(());
         }
         Action::Help => {

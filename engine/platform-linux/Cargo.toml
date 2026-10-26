@@ -6,6 +6,14 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = ["pipewire"]
+# The Mutter and xdg-desktop-portal backends, which receive frames as
+# PipeWire streams. Without it only the X11 backend is built and the crate
+# links no C library (x11rb and zbus are pure Rust), so it can be a static
+# musl binary.
+pipewire = ["dep:pipewire"]
+
 [dependencies]
 crossshell-platform = { path = "../crossshell-platform" }
 crossshell-proto = { path = "../crossshell-proto" }
@@ -14,7 +22,7 @@ log = "0.4"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = { version = "5", default-features = false, features = ["blocking-api", "async-io"] }
-pipewire = "0.10"
+pipewire = { version = "0.10", optional = true }
 x11rb = { version = "0.13", features = ["shm", "randr", "xfixes", "xtest", "damage"] }
 libc = "0.2"
 async-io = "2"
