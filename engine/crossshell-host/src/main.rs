@@ -221,9 +221,12 @@ mod tests {
         assert_eq!(a.exit_when_idle, Some(Duration::from_secs(30)));
         assert!(!a.notify && a.synthetic);
         // --info honours --runtime-dir whatever the order.
-        let a = parse(&["--info", "--runtime-dir", "/tmp/x"]).unwrap();
+        // An absolute path on every platform: "/tmp/x" is not one on Windows,
+        // where it is (rightly) anchored to the current drive.
+        let abs = std::env::temp_dir().join("x");
+        let a = parse(&["--info", "--runtime-dir", abs.to_str().unwrap()]).unwrap();
         assert!(matches!(a.action, Action::Info));
-        assert_eq!(a.runtime_dir.as_deref(), Some(std::path::Path::new("/tmp/x")));
+        assert_eq!(a.runtime_dir.as_deref(), Some(abs.as_path()));
     }
 
     #[test]
