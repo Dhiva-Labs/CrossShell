@@ -20,10 +20,12 @@ use anyhow::{anyhow, bail, Context};
 use crossshell_platform::{Backend, Capture, Capturer, DisplayInfo, Injector};
 use crossshell_proto::msg::level;
 use crossshell_proto::{
-    token_eq, Encoder, FrameRef, Message, MessageReader, Quality, MAX_INFLIGHT_FRAMES, MAX_PREAUTH_PAYLOAD, TOKEN_LEN, VERSION,
+    token_eq, Encoder, FrameRef, LosslessCodec, Message, MessageReader, Quality, HOST_CAPS, MAX_INFLIGHT_FRAMES,
+    MAX_PREAUTH_PAYLOAD, TOKEN_LEN, VERSION,
 };
 
 use crate::clipboard::ClipboardSync;
+use crate::notify::{self, ViewerNotice};
 use crate::runtime::{self, SessionStatus};
 use crate::BackendKind;
 
@@ -46,16 +48,36 @@ pub struct SessionOptions {
     /// Where to write `status.json` while a viewer is connected.
     pub runtime_dir: Option<PathBuf>,
     pub clipboard: bool,
+    /// Show a desktop notification while a viewer is connected.
+    pub notify: bool,
 }
 
 /// The one active session. A newly authenticated viewer takes over from the
 /// current one (the usual case is the same person reconnecting, or a
 /// session whose viewer vanished and hasn't timed out yet).
-#[derive(Default)]
 pub struct SessionSlot {
     active: Mutex<Option<Active>>,
     freed: Condvar,
     next_id: AtomicU64,
+    viewers: Mutex<Viewers>,
+}
+
+/// Authenticated connections, for `--exit-when-idle`.
+struct Viewers {
+    connected: u32,
+    /// When `connected` last dropped to 0 (or the slot was created).
+    idle_since: Instant,
+}
+
+impl Default for SessionSlot {
+    fn default() -> Self {
+        SessionSlot {
+            active: Mutex::default(),
+            freed: Condvar::new(),
+            next_id: AtomicU64::new(0),
+            viewers: Mutex::new(Viewers { connected: 0, idle_since: Instant::now() }),
+        }
+    }
 }
 
 struct Active {
@@ -68,6 +90,19 @@ struct Active {
 const TAKEOVER_WAIT: Duration = Duration::from_secs(3);
 
 impl SessionSlot {
+    /// `None` while an authenticated viewer is connected; otherwise how long
+    /// there has been none (since the slot was created, or since the last
+    /// authenticated viewer disconnected). Failed logins do not count.
+    pub fn idle_for(&self) -> Option<Duration> {
+        let v = self.viewers.lock().unwrap();
+        (v.connected == 0).then(|| v.idle_since.elapsed())
+    }
+
+    fn viewer_authenticated(&self) -> ViewerGuard<'_> {
+        self.viewers.lock().unwrap().connected += 1;
+        ViewerGuard(self)
+    }
+
     fn claim(&self, stream: &TcpStream, stop: &Arc<AtomicBool>) -> Option<SlotGuard<'_>> {
         let mut g = self.active.lock().unwrap();
         if let Some(old) = g.as_ref() {
@@ -101,6 +136,19 @@ impl Drop for SlotGuard<'_> {
     }
 }
 
+/// Counts one authenticated connection until it ends.
+struct ViewerGuard<'a>(&'a SessionSlot);
+
+impl Drop for ViewerGuard<'_> {
+    fn drop(&mut self) {
+        let mut v = self.0.viewers.lock().unwrap();
+        v.connected -= 1;
+        if v.connected == 0 {
+            v.idle_since = Instant::now();
+        }
+    }
+}
+
 /// Removes status.json when the session ends.
 struct StatusGuard(Option<PathBuf>);
 
@@ -116,11 +164,6 @@ fn reject(stream: &mut TcpStream, reason: &str) {
     log::warn!("rejecting viewer: {reason}");
     let _ = Message::Reject { reason: reason.to_owned() }.write_to(stream);
     let _ = stream.shutdown(Shutdown::Both);
-}
-
-fn sanitize_name(s: &str) -> String {
-    let s: String = s.chars().filter(|c| !c.is_control()).take(64).collect();
-    if s.trim().is_empty() { "viewer".into() } else { s }
 }
 
 #[derive(Default)]
@@ -151,7 +194,7 @@ pub fn serve_connection(mut stream: TcpStream, opts: &SessionOptions, slot: &Ses
 
     // --- Hello: authenticate before anything else.
     let hello = Message::read_from(&mut stream, MAX_PREAUTH_PAYLOAD).context("reading hello")?;
-    let Message::Hello { version, token, viewer_name, .. } = hello else {
+    let Message::Hello { version, token, viewer_name, caps } = hello else {
         reject(&mut stream, "expected hello");
         bail!("first message was not hello");
     };
@@ -163,13 +206,17 @@ pub fn serve_connection(mut stream: TcpStream, opts: &SessionOptions, slot: &Ses
         reject(&mut stream, &format!("protocol version {version} not supported (host speaks {VERSION})"));
         bail!("version mismatch");
     }
+    let _authenticated = slot.viewer_authenticated();
     let stop = Arc::new(AtomicBool::new(false));
     let Some(_slot) = slot.claim(&stream, &stop) else {
         reject(&mut stream, "busy: the previous session is still closing, try again");
         return Ok(());
     };
-    let viewer = sanitize_name(&viewer_name);
-    log::info!("viewer {viewer:?} authenticated");
+    let viewer = notify::clean_viewer_name(&viewer_name);
+    // Capabilities both ends have; unknown bits are ignored.
+    let caps = caps & HOST_CAPS;
+    let codec = LosslessCodec::for_caps(caps);
+    log::info!("viewer {viewer:?} authenticated (caps {caps:#x}, lossless tiles: {codec:?})");
 
     // --- Backend + Welcome. On Wayland this may wait for the consent dialog.
     let mut backend = match crate::start_backend(opts.backend) {
@@ -190,7 +237,7 @@ pub fn serve_connection(mut stream: TcpStream, opts: &SessionOptions, slot: &Ses
             return Err(e);
         }
     };
-    Message::Welcome { version: VERSION, caps: 0, displays: displays.clone() }.write_to(&mut stream)?;
+    Message::Welcome { version: VERSION, caps, displays: displays.clone() }.write_to(&mut stream)?;
 
     // --- Start.
     let start = Message::read_from(&mut stream, MAX_PREAUTH_PAYLOAD).context("reading start")?;
@@ -213,6 +260,7 @@ pub fn serve_connection(mut stream: TcpStream, opts: &SessionOptions, slot: &Ses
         let _ = runtime::write_private(p, serde_json::to_string(&st)?.as_bytes());
     }
     let _status = StatusGuard(status_path);
+    let _notice = opts.notify.then(|| ViewerNotice::show(&viewer, view_only));
 
     let capturer = backend.capturer(current.index)?;
     let mut injector = if view_only { None } else { Some(backend.injector(current.index)?) };
@@ -247,7 +295,7 @@ pub fn serve_connection(mut stream: TcpStream, opts: &SessionOptions, slot: &Ses
         let q = Quality::from_u8(quality);
         std::thread::Builder::new()
             .name("cs-capture".into())
-            .spawn(move || capture_loop(ctx, capturer, q, max_fps))?
+            .spawn(move || capture_loop(ctx, capturer, q, codec, max_fps))?
     };
 
     let clipboard = opts.clipboard.then(|| Arc::new(ClipboardSync::new()));
@@ -372,8 +420,8 @@ fn frame_interval(max_fps: u8) -> Duration {
     (Duration::from_secs(1) / u32::from(max_fps.clamp(1, 120))).saturating_sub(Duration::from_millis(4))
 }
 
-fn capture_loop(ctx: CaptureCtx, capturer: Box<dyn Capturer>, quality: Quality, max_fps: u8) {
-    if let Err(e) = capture_loop_inner(&ctx, capturer, quality, max_fps) {
+fn capture_loop(ctx: CaptureCtx, capturer: Box<dyn Capturer>, quality: Quality, codec: LosslessCodec, max_fps: u8) {
+    if let Err(e) = capture_loop_inner(&ctx, capturer, quality, codec, max_fps) {
         if !ctx.stop.load(Ordering::SeqCst) {
             log::error!("capture failed: {e:#}");
             let _ = ctx.tx.send(Message::Notice { level: level::ERROR, text: format!("capture failed: {e:#}") });
@@ -388,9 +436,10 @@ fn capture_loop_inner(
     ctx: &CaptureCtx,
     mut capturer: Box<dyn Capturer>,
     quality: Quality,
+    codec: LosslessCodec,
     max_fps: u8,
 ) -> anyhow::Result<()> {
-    let mut encoder = Encoder::new(quality);
+    let mut encoder = Encoder::new(quality).with_lossless_codec(codec);
     let mut interval = frame_interval(max_fps);
     // Latest captured frame, tightly packed BGRX.
     let mut latest: Vec<u8> = Vec::new();
@@ -406,7 +455,7 @@ fn capture_loop_inner(
         let select = ctx.flow.lock().unwrap().select.take();
         if let Some((display, q, fps)) = select {
             capturer = ctx.backend.lock().unwrap().capturer(display)?;
-            encoder = Encoder::new(Quality::from_u8(q));
+            encoder = Encoder::new(Quality::from_u8(q)).with_lossless_codec(codec);
             interval = frame_interval(fps);
             latest.clear();
             dirty = false;

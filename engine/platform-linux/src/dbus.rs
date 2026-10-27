@@ -1,5 +1,9 @@
 //! Small zbus helpers: a private session-bus connection, name checks, and
 //! waiting for a signal with a timeout.
+//!
+//! Mostly for the PipeWire backends; an X11-only build uses just [`proxy`]
+//! (for notifications).
+#![cfg_attr(not(feature = "pipewire"), allow(dead_code))]
 
 use std::collections::HashMap;
 use std::time::Duration;

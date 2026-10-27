@@ -25,6 +25,9 @@ pub enum Encoding {
     Zstd = 1,
     Jpeg = 2,
     Fill = 3,
+    /// zlib stream (RFC 1950) of BGRX, like `Zstd`. Only sent to viewers
+    /// that set [`CAP_DEFLATE`](crate::CAP_DEFLATE).
+    Deflate = 4,
 }
 
 impl Encoding {
@@ -34,6 +37,7 @@ impl Encoding {
             1 => Self::Zstd,
             2 => Self::Jpeg,
             3 => Self::Fill,
+            4 => Self::Deflate,
             _ => return proto_err(format!("unknown rect encoding {v}")),
         })
     }
@@ -565,6 +569,7 @@ mod tests {
             rects: vec![
                 Rect { x: 0, y: 64, w: 64, h: 64, encoding: Encoding::Fill, data: vec![1, 2, 3, 0] },
                 Rect { x: 64, y: 0, w: 2, h: 1, encoding: Encoding::Raw, data: vec![9; 8] },
+                Rect { x: 0, y: 0, w: 1, h: 1, encoding: Encoding::Deflate, data: vec![0x78, 0x01] },
             ],
         });
         round_trip(Message::FrameAck { seq: u32::MAX });
@@ -657,6 +662,21 @@ mod tests {
         let bytes = Message::ClipboardText("x".repeat(100)).to_bytes();
         let mut rd = MessageReader::new(10);
         assert!(rd.read(&mut &bytes[..]).is_err());
+    }
+
+    #[test]
+    fn rect_encodings_have_fixed_wire_values() {
+        for (e, v) in [
+            (Encoding::Raw, 0),
+            (Encoding::Zstd, 1),
+            (Encoding::Jpeg, 2),
+            (Encoding::Fill, 3),
+            (Encoding::Deflate, 4),
+        ] {
+            assert_eq!(e as u8, v);
+            assert_eq!(Encoding::from_u8(v).unwrap(), e);
+        }
+        assert!(Encoding::from_u8(5).is_err());
     }
 
     #[test]

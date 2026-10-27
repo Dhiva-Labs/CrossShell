@@ -24,7 +24,7 @@ import 'ssh/ssh_connect.dart';
 import 'ssh/ssh_files.dart';
 import 'ssh/sshd.dart';
 
-const appVersion = '0.1.1';
+const appVersion = '0.2.0';
 const pairingPort = 47820;
 
 class AppSettings {

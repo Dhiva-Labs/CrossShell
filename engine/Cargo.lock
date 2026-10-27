@@ -647,7 +647,7 @@ checksum = "a31eee39dddec8330830986fcd7625edb5a24ec90ea038215273bbc3adb08ac6"
 
 [[package]]
 name = "crossshell-host"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "arboard",
@@ -664,7 +664,7 @@ dependencies = [
 
 [[package]]
 name = "crossshell-platform"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "crossshell-proto",
@@ -673,7 +673,7 @@ dependencies = [
 
 [[package]]
 name = "crossshell-platform-linux"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-io",
@@ -689,7 +689,7 @@ dependencies = [
 
 [[package]]
 name = "crossshell-platform-windows"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "crossshell-platform",
@@ -700,10 +700,13 @@ dependencies = [
 
 [[package]]
 name = "crossshell-proto"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
+ "anyhow",
+ "flate2",
  "jpeg-encoder",
  "rayon",
+ "serde_json",
  "thiserror 2.0.21",
  "zstd",
  "zune-core",
@@ -712,7 +715,7 @@ dependencies = [
 
 [[package]]
 name = "crossshell-view"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "arboard",
@@ -2960,6 +2963,7 @@ version = "1.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7cc1186384beb7dd8eedea376413fd654937285ea6c9cfbb928dc3043ea4b606"
 dependencies = [
+ "getrandom 0.4.3",
  "js-sys",
  "serde_core",
  "wasm-bindgen",

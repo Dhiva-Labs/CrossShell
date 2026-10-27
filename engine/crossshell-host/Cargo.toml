@@ -13,6 +13,13 @@ path = "src/lib.rs"
 name = "crossshell-host"
 path = "src/main.rs"
 
+[features]
+default = ["pipewire"]
+# Linux: the Mutter and xdg-desktop-portal backends, which link
+# libpipewire-0.3. Build with --no-default-features for the X11-only agent,
+# which links no C library and can be a static musl binary.
+pipewire = ["crossshell-platform-linux/pipewire"]
+
 [dependencies]
 crossshell-proto = { path = "../crossshell-proto" }
 crossshell-platform = { path = "../crossshell-platform" }
@@ -27,7 +34,7 @@ arboard = { version = "3", default-features = false }
 crossshell-platform-windows = { path = "../platform-windows" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-crossshell-platform-linux = { path = "../platform-linux" }
+crossshell-platform-linux = { path = "../platform-linux", default-features = false }
 
 [dev-dependencies]
 png = "0.18.1"

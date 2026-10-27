@@ -8,7 +8,7 @@ pub mod codec;
 pub mod keymap;
 pub mod msg;
 
-pub use codec::{Decoder, Encoder, FrameRef, Quality};
+pub use codec::{Decoder, Encoder, FrameRef, LosslessCodec, Quality};
 pub use msg::{DisplayInfo, Encoding, Message, MessageReader, Rect};
 
 /// Protocol magic sent at the start of `Hello`.
@@ -25,6 +25,14 @@ pub const MAX_PREAUTH_PAYLOAD: u32 = 1024;
 pub const TOKEN_LEN: usize = 32;
 /// Frames the host may have in flight without an ack.
 pub const MAX_INFLIGHT_FRAMES: u32 = 2;
+
+/// `Hello.caps` / `Welcome.caps` bit: the viewer decodes
+/// [`Encoding::Deflate`] rects, and the host then sends lossless tiles as
+/// zlib streams instead of zstd (for viewers without a zstd decoder).
+pub const CAP_DEFLATE: u32 = 1 << 0;
+/// Every capability bit this implementation understands. A host answers
+/// `Welcome.caps = Hello.caps & HOST_CAPS`; unknown bits are ignored.
+pub const HOST_CAPS: u32 = CAP_DEFLATE;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

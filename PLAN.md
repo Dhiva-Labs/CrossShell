@@ -197,11 +197,53 @@ viewer machine                                   host machine
    and writes the token (hex) + newline to its stdin (never argv).
 4. Viewer prints JSON lines on stdout (`{"ev":"connected"}`, `{"ev":"closed","reason":…}`).
 
+#### Remote-launched agents
+
+Other apps (SecureShell Go) upload a standalone `crossshell-host` over SFTP
+and run it for one session. These flags exist for them; without them the
+agent behaves as above.
+
+| Flag | Effect |
+|---|---|
+| `--runtime-dir DIR` | `host.json`, `host.lock`, `status.json` and `host.log` live in `DIR` (created 0700; `host.json` 0600 on unix) instead of the per-user default, so a per-session agent never collides with an installed one. `--info` honours it. |
+| `--exit-when-idle SECS` | Exit when no authenticated viewer connected within `SECS` of start, or `SECS` after the last one left (a dead SSH link ends the session after the 15 s idle timeout, then this applies). Removes `host.json` and `status.json` on the way out. Failed logins do not count as a viewer. |
+| `--no-notify` | No desktop notification while a viewer is connected (see below). |
+
+**Connect notification.** While a viewer is connected the host shows
+"Your screen is being viewed from <viewer_name>" ("viewed and controlled"
+unless the session is view-only); the name loses control and bidi-override
+characters and is cut to 64 characters. Linux: `org.freedesktop.Notifications`
+on the session bus (summary only, never markup; urgency critical when
+controlled), closed with `CloseNotification` when the session ends.
+Windows: a notification-area icon with an info balloon (Windows 10/11 show it
+as a toast), removed when the session ends. A missing notification service
+is ignored.
+
+**Agent binaries** (`scripts/build-agents.sh` → `dist/agents/`, plus
+`SHA256SUMS`):
+
+| File | Backends | Linking |
+|---|---|---|
+| `crossshell-host-linux-x86_64` | Mutter, portal, X11 | glibc ≥ 2.31, needs `libpipewire-0.3.so.0` |
+| `crossshell-host-linux-x86_64-x11` | X11 only (`--no-default-features`) | static musl |
+| `crossshell-host-linux-aarch64` | Mutter, portal, X11 | glibc ≥ 2.31, needs `libpipewire-0.3.so.0` |
+| `crossshell-host-linux-aarch64-x11` | X11 only | static musl |
+| `crossshell-host-windows-x64.exe` | DXGI | system DLLs only |
+| `crossshell-host-windows-arm64.exe` | DXGI | system DLLs only |
+
+The full Linux build fails to start where libpipewire is missing (minimal
+servers); the `-x11` build runs anywhere and is what Xvfb virtual desktops
+use. On an Xvfb display, run the full build with
+`CROSSSHELL_LINUX_BACKEND=x11`: otherwise it tries Mutter first, on whatever
+session bus it can reach. `crossshell-host --version` names the backends a
+build has.
+
 ### host.json
 
 Linux `${XDG_RUNTIME_DIR:-$HOME/.cache}/crossshell/host.json` (dir 0700, file 0600);
 Windows `%LOCALAPPDATA%\CrossShell\host.json`. Contents:
 `{"v":1,"port":47821,"token":"<64 hex>","pid":1234,"ver":"0.1.0"}`.
+`--runtime-dir DIR` moves it (and the lock, status and log) to `DIR`.
 Token: 32 random bytes, new per agent start. Read over SSH only if the pid
 in it is alive (see `remote_commands.dart`). Remote commands are
 `sh -c '…'` on Linux (any login shell, even fish) and `powershell
@@ -224,12 +266,20 @@ Handshake (must complete within 10 s, else close):
 
 | Dir | Type | Name | Payload |
 |---|---|---|---|
-| V→H | 0x01 | Hello | magic `CSRD`, u16 version=1, token[32], str viewer_name, u32 caps |
-| H→V | 0x02 | Welcome | u16 version, u32 caps, u8 n_displays, n × Display |
+| V→H | 0x01 | Hello | magic `CSRD`, u16 version=1, token[32], str viewer_name, u32 caps (bits the viewer supports) |
+| H→V | 0x02 | Welcome | u16 version, u32 caps (`Hello.caps & host caps`), u8 n_displays, n × Display |
 | H→V | 0x03 | Reject | str reason (bad token/version/busy) then close |
 | V→H | 0x10 | Start | u8 display_index, u8 quality (0 lossless,1 balanced,2 speed), u8 max_fps, u8 flags (bit0 view_only) |
 
 Display = `u8 index, str name, i32 x, i32 y, u32 width, u32 height, u8 primary`.
+
+Capabilities (`caps` bits). Unknown bits are ignored and never echoed, so a
+viewer can always offer more than a host knows; a viewer sending 0 gets the
+protocol as it was before caps existed.
+
+| Bit | Name | Meaning |
+|---|---|---|
+| 0 | `CAP_DEFLATE` | The viewer decodes encoding 4 (Deflate). The host then sends lossless tiles as Deflate instead of Zstd, for viewers without zstd (SecureShell Go's Dart viewer uses `dart:io` zlib). |
 
 Session:
 
@@ -258,8 +308,13 @@ Rect = `u16 x, u16 y, u16 w, u16 h, u8 encoding, u32 len, data[len]`:
 | 0 | Raw | BGRX, w*h*4 bytes |
 | 1 | Zstd | zstd(BGRX) |
 | 2 | Jpeg | baseline JPEG (decoded to RGB → BGRX) |
-| 3 | Fill | 4 bytes BGRX |
-| 4 | CopyPrev | u16 src_x, u16 src_y (scroll/move from previous frame) — reserved |
+| 3 | Fill | 4 bytes BGRX (X = 0) |
+| 4 | Deflate | one zlib stream (RFC 1950: header, deflate data, Adler-32) of BGRX, w*h*4 bytes once inflated, nothing after it. Only sent after `CAP_DEFLATE`. |
+| 5 | CopyPrev | u16 src_x, u16 src_y (scroll/move from previous frame) — reserved |
+
+Raw, Zstd and Deflate carry the same bytes: the rect's pixels, rows top to
+bottom, no padding. The X byte is whatever the capture produced; decoders
+ignore it. A rect whose compressed form would not be smaller is sent Raw.
 
 Pixel format in frames is BGRX (B,G,R,X bytes per pixel), which is
 little-endian `0x00RRGGBB` as u32 — softbuffer's native layout.
@@ -280,6 +335,11 @@ compares row slices to find dirty tiles. Per dirty tile:
 2. Quality 0 → Zstd(level 1).
 3. Count distinct colors on a sparse sample; ≤ 48 → Zstd (UI/text stays
    crisp), else Jpeg (quality 1: q=80, quality 2: q=60).
+
+With `CAP_DEFLATE` negotiated, every Zstd above is Deflate (zlib level 1,
+pure-Rust miniz_oxide) instead. Jpeg tiles that then stay unchanged for 3
+encodes are re-sent losslessly (refinement, after ~250 ms of stillness), so
+a still screen always ends up pixel-exact.
 
 Horizontal runs of dirty tiles with the same encoding decision may be merged
 into one rect. Tiles are encoded in parallel (rayon).
@@ -311,6 +371,9 @@ evdev straight to the portal (`NotifyKeyboardKeycode`) or XTest (`evdev + 8`).
   desktop's consent dialog once.
 - **Linux X11**: XShm `GetImage` per RandR monitor (XDamage-driven) + XTest
   for input, XFixes cursor.
+- Mutter and the portal need the `pipewire` cargo feature (default). Without
+  it only X11 is built and the agent links no C library, so it can be a
+  static musl binary.
 - Overrides: `CROSSSHELL_LINUX_BACKEND=mutter|portal|x11`,
   `CROSSSHELL_CURSOR=metadata|embedded`.
 

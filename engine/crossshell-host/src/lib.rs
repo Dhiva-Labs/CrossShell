@@ -2,6 +2,7 @@
 
 pub mod clipboard;
 pub mod logger;
+pub mod notify;
 pub mod runtime;
 pub mod session;
 
@@ -14,6 +15,26 @@ pub enum BackendKind {
     Native,
     /// The animated test pattern (tests, CI, demos).
     Synthetic,
+}
+
+/// Which capture backends this build has, for `--version`.
+pub fn flavour() -> &'static str {
+    #[cfg(target_os = "linux")]
+    {
+        if crossshell_platform_linux::HAS_PIPEWIRE {
+            "mutter, portal, x11"
+        } else {
+            "x11 only"
+        }
+    }
+    #[cfg(windows)]
+    {
+        "dxgi"
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        "none"
+    }
 }
 
 /// Process-wide platform setup (Windows: DPI awareness).
