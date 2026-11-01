@@ -48,7 +48,11 @@ cp "$repo/LICENSE" "$work/LICENSE"
 cp "$repo/app/linux/com.dhivalabs.cross_shell.desktop" "$repo/app/linux/crossshell-256.png" \
   "$repo/app/linux/crossshell-512.png" "$repo/packaging/flatpak/com.dhivalabs.cross_shell.metainfo.xml" "$work/"
 
-docker run --rm -v "$work:/build" archlinux:latest bash -euo pipefail -c '
+# makepkg refuses to run as root, so the work directory goes to a build user
+# inside the container and comes back to this user on the way out.
+docker run --rm -v "$work:/build" -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+  archlinux:latest bash -euo pipefail -c '
+  trap "chown -R \"\$HOST_UID:\$HOST_GID\" /build" EXIT
   pacman -Syu --noconfirm --needed -q base-devel namcap
   useradd -m builder
   chown -R builder /build

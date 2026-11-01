@@ -102,7 +102,8 @@ for f in "${elfs[@]}"; do
   done < <(objdump -p "$f" | awk '$1 == "SONAME" || $1 == "NEEDED" { print $1, $2 }')
   # Static ELF files have no dynamic symbol table (objdump -T fails on them).
   v=
-  if objdump -p "$f" | grep -q '^Dynamic Section:'; then
+  # (grep without -q: under pipefail, -q can kill objdump with SIGPIPE.)
+  if objdump -p "$f" | grep '^Dynamic Section:' > /dev/null; then
     v="$(objdump -T "$f" | awk 'match($0, /GLIBC_[0-9][0-9.]*/) { print substr($0, RSTART, RLENGTH) }' | sort -uV | tail -n 1)"
   fi
   if [ -n "$v" ]; then

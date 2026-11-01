@@ -10,7 +10,8 @@ set -euo pipefail
 # GUI smoke test, per distribution.
 # SMOKE_SCRIPT (scripts/smoke-linux.sh) runs its own Xvfb and checks the
 # pictures it captures with Python (tkinter paints the test window, Pillow
-# reads the captured PNG).
+# reads the captured PNG). On openSUSE xvfb-run needs awk, and
+# dbus-run-session is not in dbus-1, so it is asked for by path.
 case "$MODE" in
   rpm|appimage)
     dnf -y -q install file findutils which procps-ng \
@@ -20,7 +21,7 @@ case "$MODE" in
   rpm-suse)
     zypper -n -q --gpg-auto-import-keys refresh
     zypper -n -q install file findutils which procps \
-      xorg-x11-server-Xvfb xvfb-run Mesa-dri dbus-1 \
+      xorg-x11-server-Xvfb xvfb-run gawk Mesa-dri dbus-1 /usr/bin/dbus-run-session \
       python3 python3-tk python3-Pillow
     ;;
   pacman)
@@ -42,10 +43,11 @@ case "$MODE" in
   pacman)   pacman -U --noconfirm "$FILE"; files() { pacman -Qlq "$NAME"; } ;;
   appimage)
     # The libraries the AppImage expects from the host, as the tarball does:
-    # GTK 3 and friends, and PipeWire's client library for screen sharing
-    # (its plugins and modules must match the host's PipeWire, so it is not
-    # bundled).
-    dnf -y -q install gtk3 pipewire-libs
+    # GTK 3 and friends, the EGL/GLES libraries Flutter's engine opens at run
+    # time (every desktop has them; the minimal container does not), and
+    # PipeWire's client library for screen sharing (its plugins and modules
+    # must match the host's PipeWire, so it is not bundled).
+    dnf -y -q install gtk3 libglvnd-egl libglvnd-gles pipewire-libs
     cp "$FILE" /tmp/app.AppImage
     chmod +x /tmp/app.AppImage
     (cd /tmp && /tmp/app.AppImage --appimage-extract > /dev/null)
@@ -65,7 +67,7 @@ done)
 libdirs="$(for f in "${elfs[@]}"; do case "$f" in *.so|*.so.*) dirname "$f" ;; esac; done | sort -u | paste -sd:)"
 missing=0
 for f in "${elfs[@]}"; do
-  if LD_LIBRARY_PATH="$libdirs" ldd "$f" 2>&1 | grep -q 'not found'; then
+  if LD_LIBRARY_PATH="$libdirs" ldd "$f" 2>&1 | grep 'not found' > /dev/null; then
     echo "missing libraries for $f:"
     LD_LIBRARY_PATH="$libdirs" ldd "$f" | grep 'not found'
     missing=1
@@ -128,7 +130,7 @@ cat "$log"
 if grep -E 'error while loading shared libraries|cannot open shared object|undefined symbol' "$log"; then ok=0; fi
 [ "$ok" = 1 ]
 EOS
-  export HOME=/tmp/smoke-home
+  export HOME=/tmp/smoke-home SMOKE_SECONDS
   mkdir -p "$HOME"
   xvfb-run -a -s '-screen 0 1280x800x24' dbus-run-session -- bash /tmp/smoke.sh "${gui[@]}"
 fi
