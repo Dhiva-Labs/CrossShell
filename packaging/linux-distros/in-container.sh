@@ -11,7 +11,7 @@ set -euo pipefail
 # SMOKE_SCRIPT (scripts/smoke-linux.sh) runs its own Xvfb and checks the
 # pictures it captures with Python (tkinter paints the test window, Pillow
 # reads the captured PNG). On openSUSE xvfb-run needs awk, and
-# dbus-run-session is not in dbus-1, so it is asked for by path.
+# dbus-run-session is not in dbus-1 but in dbus-1-daemon.
 case "$MODE" in
   rpm|appimage)
     dnf -y -q install file findutils which procps-ng \
@@ -21,7 +21,7 @@ case "$MODE" in
   rpm-suse)
     zypper -n -q --gpg-auto-import-keys refresh
     zypper -n -q install file findutils which procps \
-      xorg-x11-server-Xvfb xvfb-run gawk Mesa-dri dbus-1 /usr/bin/dbus-run-session \
+      xorg-x11-server-Xvfb xvfb-run gawk Mesa-dri dbus-1 dbus-1-daemon \
       python3 python3-tk python3-Pillow
     ;;
   pacman)
