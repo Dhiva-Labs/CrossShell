@@ -371,15 +371,210 @@ jobs:
           path: ${{ steps.build.outputs.snap }}
           if-no-files-found: error
 
+  # The .rpm (Fedora, RHEL, openSUSE), the Arch package and the AppImage.
+  # CrossShell has no .deb, so packaging/linux-distros/tree.sh lays out the
+  # installed tree from each architecture's tarball above and every format is
+  # built from that one tree (the same binaries as the tarball). verify.sh then
+  # installs each on the real distribution and runs scripts/smoke-linux.sh
+  # there: the .rpm on Fedora and openSUSE Tumbleweed, the Arch package on
+  # Arch (x64 only: Arch has no official arm64 image, so the arm64 package
+  # gets a static check), the AppImage on Fedora.
+  distros:
+    name: Other distros ${{ matrix.arch }}
+    needs: [linux]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            deb_arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            deb_arch: arm64
+            runner: ubuntu-24.04-arm
+    env:
+      NFPM_VERSION: '2.48.0'
+      APPIMAGETOOL_VERSION: '1.9.1'
+      ARCH: ${{ matrix.arch }}
+      DEB_ARCH: ${{ matrix.deb_arch }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: linux-${{ matrix.arch }}
+          path: tarball
+
+      # nfpm is checked against its release's checksums file.
+      - name: Install nfpm and appimagetool
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "$(uname -m)" in
+            x86_64) nfpm_arch=x86_64; ai_arch=x86_64 ;;
+            aarch64) nfpm_arch=arm64; ai_arch=aarch64 ;;
+          esac
+          mkdir -p "$RUNNER_TEMP/bin"
+          cd "$RUNNER_TEMP/bin"
+          tarball="nfpm_${NFPM_VERSION}_Linux_${nfpm_arch}.tar.gz"
+          gh release download "v$NFPM_VERSION" -R goreleaser/nfpm -p "$tarball" -p checksums.txt
+          grep " $tarball\$" checksums.txt | sha256sum -c -
+          tar -xzf "$tarball" nfpm
+          gh release download "$APPIMAGETOOL_VERSION" -R AppImage/appimagetool \
+            -p "appimagetool-$ai_arch.AppImage" -O appimagetool
+          chmod +x appimagetool
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      # The Flatpak job builds from the same cleaned tree (tar keeps modes and
+      # symlinks).
+      - name: Build the .rpm, Arch package and AppImage
+        run: |
+          VERSION="$(grep -m1 '^version' engine/Cargo.toml | sed 's/.*"\(.*\)"/\1/')"
+          packaging/linux-distros/tree.sh "tarball/crossshell-$VERSION-linux-$ARCH.tar.gz" "$RUNNER_TEMP/root"
+          VERSION="$VERSION" TREE_TARBALL="$RUNNER_TEMP/tree.tar.xz" \
+            packaging/linux-distros/pack.sh "$RUNNER_TEMP/root" "$DEB_ARCH" dist
+
+      - name: Install and run them on Fedora, openSUSE and Arch
+        timeout-minutes: 30
+        run: packaging/linux-distros/verify.sh dist "$DEB_ARCH"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: distros-${{ matrix.arch }}
+          path: |
+            dist/*.rpm
+            dist/*.pkg.tar.zst
+            dist/*.AppImage
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tree-${{ matrix.arch }}
+          path: ${{ runner.temp }}/tree.tar.xz
+          if-no-files-found: error
+          retention-days: 3
+
+  # The AUR recipe for crossshell-bin (it repackages the release tarballs):
+  # PKGBUILD and .SRCINFO rendered with this build's checksums, built with
+  # makepkg, installed and checked with ldd on archlinux:latest. Pushing it to
+  # the AUR is done by hand.
+  aur:
+    name: AUR PKGBUILD
+    needs: [linux]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: linux-*
+          path: tarballs
+          merge-multiple: true
+
+      - name: Render and check the PKGBUILD
+        run: |
+          VERSION="$(grep -m1 '^version' engine/Cargo.toml | sed 's/.*"\(.*\)"/\1/')"
+          VERSION="$VERSION" packaging/arch/aur.sh \
+            "tarballs/crossshell-$VERSION-linux-x64.tar.gz" "tarballs/crossshell-$VERSION-linux-arm64.tar.gz" dist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: aur
+          path: dist/*-aur.tar.gz
+          if-no-files-found: error
+
+  # The Flatpak bundle, from the same tree as the .rpm (the GNOME 51 runtime,
+  # plus OpenSSH's client tools built from source, since the runtime has
+  # none). It is installed in the builder image, checked with ldd inside the
+  # sandbox, and scripts/smoke-flatpak.sh runs the bundled ssh tools, the
+  # engine and the app there. What the sandbox allows is in
+  # packaging/flatpak/README.md.
+  flatpak:
+    name: Flatpak ${{ matrix.arch }}
+    needs: [distros]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51
+      options: --privileged
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            fp_arch: x86_64
+            runner: ubuntu-24.04
+          - arch: arm64
+            fp_arch: aarch64
+            runner: ubuntu-24.04-arm
+    env:
+      APP_ID: com.dhivalabs.cross_shell
+      FP_ARCH: ${{ matrix.fp_arch }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: tree-${{ matrix.arch }}
+          path: ${{ runner.temp }}/tree
+
+      - name: Unpack the installed tree
+        id: v
+        run: |
+          mkdir -p packaging/flatpak/tree
+          tar -xJf "$RUNNER_TEMP/tree/tree.tar.xz" -C packaging/flatpak/tree
+          VERSION="$(grep -m1 '^version' engine/Cargo.toml | sed 's/.*"\(.*\)"/\1/')"
+          echo "bundle=crossshell-$VERSION-$FP_ARCH.flatpak" >> "$GITHUB_OUTPUT"
+
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: packaging/flatpak/com.dhivalabs.cross_shell.yml
+          bundle: ${{ steps.v.outputs.bundle }}
+          arch: ${{ matrix.fp_arch }}
+          cache: false
+          artifact-name: flatpak-${{ matrix.arch }}
+
+      - name: Install the bundle and run it
+        timeout-minutes: 15
+        env:
+          BUNDLE: ${{ steps.v.outputs.bundle }}
+        run: |
+          for tool in flatpak xvfb-run dbus-run-session python3; do
+            printf '%-18s %s\n' "$tool" "$(command -v "$tool" || echo missing)"
+          done
+          flatpak install --system -y --noninteractive "./$BUNDLE"
+          flatpak info "$APP_ID"
+          # Every ELF file in the app finds its libraries inside the runtime.
+          flatpak run --command=bash "$APP_ID" -c '
+            missing=0
+            for f in /app/bin/ssh /app/bin/ssh-keygen /app/bin/ssh-keyscan \
+                /app/lib/crossshell/cross_shell /app/lib/crossshell/crossshell-host \
+                /app/lib/crossshell/crossshell-view /app/lib/crossshell/lib/*.so; do
+              out="$(LD_LIBRARY_PATH=/app/lib/crossshell/lib ldd "$f")" || { echo "ldd failed on $f"; missing=1; continue; }
+              if printf "%s\n" "$out" | grep "not found"; then echo "  in $f"; missing=1; fi
+              echo "$f: ok"
+            done
+            [ "$missing" = 0 ]'
+          export XDG_RUNTIME_DIR="$RUNNER_TEMP/xdg-runtime"
+          mkdir -p -m 700 "$XDG_RUNTIME_DIR"
+          xvfb-run -a -s "-screen 0 1280x800x24" dbus-run-session -- scripts/smoke-flatpak.sh "$APP_ID"
+
   # Releases are made by hand. When a release is published, this job attaches
-  # the tarballs and zips of both architectures that are not on it yet, plus
+  # the files of both architectures that are not on it yet (tarballs, zips,
+  # .rpm, Arch packages, AppImages, Flatpak bundles and the AUR recipe), plus
   # SHA256SUMS when it has none. It never replaces an asset: files uploaded by
   # hand win, so a release can also be published with notes only and this job
   # completes it. On every other event it only selects and checks the files,
   # so that part is tested on PRs.
   release:
     name: Release assets
-    needs: [linux, windows]
+    needs: [linux, windows, distros, aur, flatpak]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -402,13 +597,35 @@ jobs:
           path: assets
           merge-multiple: true
 
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: distros-*
+          path: assets
+          merge-multiple: true
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: aur
+          path: assets
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: flatpak-*
+          path: assets
+          merge-multiple: true
+
       - name: Select the release assets
         id: select
         run: |
           VERSION="$(grep -m1 '^version' engine/Cargo.toml | sed 's/.*"\(.*\)"/\1/')"
           FILES="crossshell-${VERSION}-linux-x64.tar.gz crossshell-${VERSION}-linux-arm64.tar.gz crossshell-${VERSION}-windows-x64.zip crossshell-${VERSION}-windows-arm64.zip"
+          for a in x86_64 aarch64; do
+            FILES="$FILES crossshell-${VERSION}-1.${a}.rpm crossshell-${VERSION}-1-${a}.pkg.tar.zst"
+            FILES="$FILES CrossShell-${VERSION}-${a}.AppImage crossshell-${VERSION}-${a}.flatpak"
+          done
+          FILES="$FILES crossshell-bin-${VERSION}-aur.tar.gz"
           ls -l assets
-          [ "$(ls assets | wc -l)" -eq 4 ]
+          [ "$(ls assets | wc -l)" -eq 13 ]
           (cd assets && ls -l $FILES && sha256sum $FILES)
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "files=$FILES" >> "$GITHUB_OUTPUT"

@@ -3,6 +3,7 @@
 [![ARM64 builds](https://github.com/Dhiva-Labs/CrossShell/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Dhiva-Labs/CrossShell/actions/workflows/ci.yml)
 ![Linux x64 | arm64](https://img.shields.io/badge/Linux-x64%20%7C%20arm64-informational?logo=linux&logoColor=white)
 ![Windows x64 | arm64](https://img.shields.io/badge/Windows-x64%20%7C%20arm64-informational?logo=windows&logoColor=white)
+![Linux: tarball | rpm | Arch | AppImage | Flatpak](https://img.shields.io/badge/Linux-tarball%20%7C%20rpm%20%7C%20Arch%20%7C%20AppImage%20%7C%20Flatpak-informational?logo=linux&logoColor=white)
 
 Two machines, one desk. CrossShell links a Linux daily driver and a Windows
 build box (or any mix of Linux and Windows machines) on the same network:
@@ -58,6 +59,32 @@ Download from the [releases page](https://github.com/Dhiva-Labs/CrossShell/relea
 - **Linux (arm64):** `crossshell-<ver>-linux-arm64.tar.gz`, the same bundle
   built natively for aarch64. It has the same requirements and is used the
   same way.
+- **Fedora, RHEL, openSUSE:** `crossshell-<ver>-1.x86_64.rpm` or
+  `-1.aarch64.rpm`. `sudo dnf install ./crossshell-<ver>-1.x86_64.rpm`, or on
+  openSUSE `sudo zypper install --allow-unsigned-rpm ./crossshell-<ver>-1.x86_64.rpm`
+  (the package is not signed). It pulls in the OpenSSH client, GTK 3 and
+  PipeWire, and starts as `crossshell`.
+- **Arch, Manjaro, EndeavourOS:** `crossshell-<ver>-1-x86_64.pkg.tar.zst` or
+  `-aarch64`: `sudo pacman -U ./crossshell-<ver>-1-x86_64.pkg.tar.zst`. The
+  release also carries `crossshell-bin-<ver>-aur.tar.gz`, the recipe for an
+  AUR `crossshell-bin` package (not on the AUR yet).
+- **Any other Linux:** `CrossShell-<ver>-x86_64.AppImage` or `-aarch64`:
+  `chmod +x CrossShell-<ver>-x86_64.AppImage && ./CrossShell-<ver>-x86_64.AppImage`.
+  Like the tarball it needs GTK 3, PipeWire and the OpenSSH client from the
+  system.
+- **Flatpak:** `crossshell-<ver>-x86_64.flatpak` or `-aarch64`:
+  `flatpak install --user ./crossshell-<ver>-x86_64.flatpak` (the GNOME
+  runtime comes from Flathub; OpenSSH's client is inside the bundle). In the
+  sandbox it can pair, open terminals, files and port forwards and view other
+  machines, but it cannot set up this machine's SSH server or let other
+  machines view this screen. The full list is in
+  [packaging/flatpak/README.md](packaging/flatpak/README.md).
+
+  These four are attached to releases from the next release on. They hold
+  the same build as the tarball, which is made on Ubuntu 24.04 (glibc 2.39):
+  use a current distribution (Fedora 40 or later, openSUSE Tumbleweed,
+  current Arch; not RHEL 9 or openSUSE Leap 15). The `.rpm` records the
+  newest glibc it needs, so dnf and zypper refuse it where it would not run.
 - **Windows 10/11 (x64):** `crossshell-<ver>-windows-x64.zip`. Extract it
   and run `cross_shell.exe`. The OpenSSH client ships with Windows; the app
   can install OpenSSH Server for you.
@@ -78,7 +105,8 @@ box and an x64 Windows PC.
 > `cross_shell.exe` or the screen-share agent `crossshell-host.exe`. The
 > app tells you when that happens. Signed releases are planned.
 
-Verify downloads with `SHA256SUMS` (it lists the x64 and arm64 files).
+Verify downloads with `SHA256SUMS` (it lists the files of both
+architectures).
 
 ## Use it
 

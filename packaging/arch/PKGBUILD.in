@@ -1,0 +1,59 @@
+# Maintainer: Dhiva Labs <dhivakar1010@gmail.com>
+#
+# AUR package. It repackages the Linux tarball from the GitHub release (the
+# Flutter app with CrossShell's engine binaries), so Arch users run the same
+# build as every other distribution, laid out as the .rpm and the Arch
+# package on the release are (packaging/linux-distros/tree.sh).
+# packaging/arch/aur.sh renders this file for each release (version and
+# checksums) and checks it with makepkg; the rendered PKGBUILD and .SRCINFO
+# are what gets pushed to the AUR.
+pkgname=@NAME@-bin
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc='@SUMMARY@'
+arch=('x86_64' 'aarch64')
+url='@HOMEPAGE@'
+license=('@LICENSE@')
+depends=(@ARCH_DEPENDS@)
+optdepends=(@ARCH_OPTDEPENDS@)
+provides=('@NAME@')
+conflicts=('@NAME@')
+options=('!strip' '!debug')
+_raw=https://raw.githubusercontent.com/@GITHUB_REPO@/@TAG@
+source=("LICENSE::$_raw/LICENSE"
+        "com.dhivalabs.cross_shell.desktop::$_raw/app/linux/com.dhivalabs.cross_shell.desktop"
+        "crossshell-256.png::$_raw/app/linux/crossshell-256.png"
+        "crossshell-512.png::$_raw/app/linux/crossshell-512.png"
+        "com.dhivalabs.cross_shell.metainfo.xml::$_raw/packaging/flatpak/com.dhivalabs.cross_shell.metainfo.xml")
+source_x86_64=("@RELEASE_URL@/@NAME@-@VERSION@-linux-x64.tar.gz")
+source_aarch64=("@RELEASE_URL@/@NAME@-@VERSION@-linux-arm64.tar.gz")
+sha256sums=('@SHA_LICENSE@'
+            '@SHA_DESKTOP@'
+            '@SHA_ICON256@'
+            '@SHA_ICON512@'
+            '@SHA_METAINFO@')
+sha256sums_x86_64=('@SHA_X64@')
+sha256sums_aarch64=('@SHA_ARM64@')
+
+package() {
+  local id=com.dhivalabs.cross_shell bundle
+  case "$CARCH" in
+    x86_64) bundle="$srcdir/@NAME@-$pkgver-linux-x64" ;;
+    aarch64) bundle="$srcdir/@NAME@-$pkgver-linux-arm64" ;;
+  esac
+  install -d "$pkgdir/usr/lib/crossshell" "$pkgdir/usr/bin"
+  cp -a "$bundle/." "$pkgdir/usr/lib/crossshell/"
+  # Built only because the release runner has a JDK, and never loaded on the
+  # desktop; it would need libjvm.so (see packaging/linux-distros/distro.conf).
+  rm -f "$pkgdir/usr/lib/crossshell/lib/libdartjni.so"
+  # The app finds crossshell-host and crossshell-view next to its resolved
+  # executable, so a symlink keeps remote desktop working.
+  ln -s ../lib/crossshell/cross_shell "$pkgdir/usr/bin/crossshell"
+  install -d "$pkgdir/usr/share/applications"
+  sed -e 's/^Exec=.*/Exec=crossshell/' -e "s/^Icon=.*/Icon=$id/" \
+    "$id.desktop" > "$pkgdir/usr/share/applications/$id.desktop"
+  install -Dm644 crossshell-256.png "$pkgdir/usr/share/icons/hicolor/256x256/apps/$id.png"
+  install -Dm644 crossshell-512.png "$pkgdir/usr/share/icons/hicolor/512x512/apps/$id.png"
+  install -Dm644 "$id.metainfo.xml" "$pkgdir/usr/share/metainfo/$id.metainfo.xml"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

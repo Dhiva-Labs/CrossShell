@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.dhivalabs.cross_shell</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>CrossShell</name>
+  <summary>SSH both ways, files and remote desktop between Linux and Windows</summary>
+  <description>
+    <p>
+      CrossShell links your Linux machine and your Windows machine (or any mix
+      of the two) on the same network, so they work like one desk.
+    </p>
+    <ul>
+      <li>SSH both ways, set up for you: pair two machines with a 6-digit code
+        shown on both screens. CrossShell exchanges keys and pins host keys, and
+        afterwards ssh to the other machine works from any terminal.</li>
+      <li>Terminal tabs, a two-pane SFTP file manager and local and remote port
+        forwards.</li>
+      <li>Remote desktop: view or control the other screen, with CrossShell's
+        own engine tunneled through SSH, so it opens no extra ports.</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">com.dhivalabs.cross_shell.desktop</launchable>
+  <url type="homepage">https://github.com/Dhiva-Labs/CrossShell</url>
+  <url type="bugtracker">https://github.com/Dhiva-Labs/CrossShell/issues</url>
+  <developer id="com.dhivalabs">
+    <name>Dhiva Labs</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.2.0" date="2026-10-27"/>
+    <release version="0.1.1" date="2026-10-11"/>
+    <release version="0.1.0" date="2026-10-11"/>
+  </releases>
+</component>
