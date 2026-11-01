@@ -1,0 +1,62 @@
+# Flatpak manifest for CrossShell.
+#
+# Like the .rpm, Arch package and AppImage, this repackages the installed
+# tree CI lays out from the release tarball (packaging/linux-distros/tree.sh,
+# unpacked into packaging/flatpak/tree/ by the workflow), so the Flatpak ships
+# the same binaries instead of a second build inside the sandbox. A Flathub
+# submission needs `tree` swapped for the release tarball (URL + sha256); see
+# README.md in this directory, which also lists what works in the sandbox.
+id: com.dhivalabs.cross_shell
+runtime: org.gnome.Platform
+runtime-version: '51'
+sdk: org.gnome.Sdk
+command: crossshell
+finish-args:
+  # GTK needs a display socket; fallback-x11 covers X11-only desktops.
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  # GPU acceleration for Flutter's renderer and the remote-desktop viewer.
+  - --device=dri
+  # SSH to and from the machines on the LAN, pairing and discovery
+  # (TCP and UDP 47820) and the remote-desktop tunnel.
+  - --share=network
+  # The home folder, as the snap's `home` plug gives it: the local side of
+  # the two-pane file manager browses it itself (no file chooser), and
+  # CrossShell keeps its key, config and known_hosts in ~/.ssh/crossshell/,
+  # adds one Include line to ~/.ssh/config and paired machines' keys to
+  # ~/.ssh/authorized_keys.
+  - --filesystem=home
+modules:
+  # ssh, ssh-keygen and ssh-keyscan: the app runs them for terminals, the
+  # remote-desktop tunnel and host-key checks, and the GNOME runtime has no
+  # OpenSSH client (the snap bundles Ubuntu's for the same reason). Only the
+  # client tools are built; this machine's SSH server stays the host's.
+  - name: openssh
+    buildsystem: simple
+    sources:
+      - type: archive
+        url: https://cdn.openbsd.org/pub/OpenBSD/OpenSSH/portable/openssh-10.6p1.tar.gz
+        sha256: a9dc9565dffe8640f64d863cd29a32bc4a3dbdec0566a7fc44c5d6ee767d5f39
+    build-commands:
+      - ./configure --prefix=/app --sysconfdir=/app/etc/ssh --disable-strip --without-pam
+      - make -j"$FLATPAK_BUILDER_N_JOBS" ssh ssh-keygen ssh-keyscan
+      - install -Dm755 -t /app/bin ssh ssh-keygen ssh-keyscan
+
+  - name: crossshell
+    buildsystem: simple
+    sources:
+      - type: dir
+        path: tree
+        dest: tree
+    build-commands:
+      # The bundle as it is: the app finds crossshell-host and
+      # crossshell-view next to its resolved executable.
+      - mkdir -p /app/lib /app/bin
+      - cp -a tree/usr/lib/crossshell /app/lib/crossshell
+      - ln -s ../lib/crossshell/cross_shell /app/bin/crossshell
+      # tree.sh already names the desktop file and icons after the app ID.
+      - install -Dm644 -t /app/share/applications tree/usr/share/applications/com.dhivalabs.cross_shell.desktop
+      - install -Dm644 -t /app/share/icons/hicolor/256x256/apps tree/usr/share/icons/hicolor/256x256/apps/com.dhivalabs.cross_shell.png
+      - install -Dm644 -t /app/share/icons/hicolor/512x512/apps tree/usr/share/icons/hicolor/512x512/apps/com.dhivalabs.cross_shell.png
+      - install -Dm644 -t /app/share/metainfo tree/usr/share/metainfo/com.dhivalabs.cross_shell.metainfo.xml

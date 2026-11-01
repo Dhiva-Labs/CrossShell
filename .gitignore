@@ -3,3 +3,6 @@ engine/target/
 /dist/
 .claude/
 engine/target*/
+
+# Flatpak builds in CI (the installed tree the workflow unpacks)
+packaging/flatpak/tree/
