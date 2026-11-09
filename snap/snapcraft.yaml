@@ -45,7 +45,9 @@ grade: stable
 confinement: strict
 icon: snap/gui/crossshell.png
 license: MIT
-website: https://github.com/Dhiva-Labs/CrossShell
+website:
+  - https://github.com/Dhiva-Labs/CrossShell
+  - https://learn.dhivalabs.com/apps/crossshell/
 source-code: https://github.com/Dhiva-Labs/CrossShell
 issues: https://github.com/Dhiva-Labs/CrossShell/issues
 contact: dhivakar1010@gmail.com
