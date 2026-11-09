@@ -18,6 +18,8 @@ build box (or any mix of Linux and Windows machines) on the same network:
   Windows Home (which has no RDP server) and on Wayland, opens no extra
   ports, and needs no third-party server.
 
+**Documentation:** step-by-step guides at [learn.dhivalabs.com](https://learn.dhivalabs.com/apps/crossshell/): [install](https://learn.dhivalabs.com/apps/crossshell/install) · [beginner guide](https://learn.dhivalabs.com/apps/crossshell/getting-started) · [troubleshooting](https://learn.dhivalabs.com/apps/crossshell/faq). New to the topic? Try the [Networking and SSH](https://learn.dhivalabs.com/tracks/networking/) learning track.
+
 ## How it works
 
 ```
