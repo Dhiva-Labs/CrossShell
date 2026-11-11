@@ -66,11 +66,10 @@ First Microsoft Store release.
 • New "Remove CrossShell changes from this PC" action.
 • Firewall rules now apply to Private and work networks only, and CrossShell tells you when your network is set to Public.
 • A notification on the shared PC while it is being viewed.
-• Windows on ARM (arm64) build.
 
 ## Search terms
 
-Microsoft Store (7 terms max): ssh, remote desktop, sftp, file transfer, port forwarding, terminal, screen sharing
+Microsoft Store (7 terms max): ssh, sftp, file transfer, port forwarding, terminal, screen sharing, remote access
 
 ## Screenshots
 
