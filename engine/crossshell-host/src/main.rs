@@ -152,6 +152,13 @@ fn run() -> anyhow::Result<()> {
         ver: env!("CARGO_PKG_VERSION").into(),
     };
     runtime::write_host_info(&dir, &info)?;
+    // Older viewers look for host.json only in the old Windows location.
+    let mirror = if args.runtime_dir.is_none() { runtime::legacy_runtime_dir().filter(|m| *m != dir) } else { None };
+    if let Some(m) = &mirror {
+        if let Err(e) = runtime::ensure_dir(m).and_then(|()| runtime::write_host_info(m, &info)) {
+            log::warn!("could not mirror host.json to {}: {e}", m.display());
+        }
+    }
     log::info!(
         "listening on 127.0.0.1:{port} (backend: {}, runtime dir: {})",
         if args.synthetic { "synthetic" } else { "native" },
@@ -167,12 +174,15 @@ fn run() -> anyhow::Result<()> {
     });
     let slot = Arc::new(SessionSlot::default());
     if let Some(limit) = args.exit_when_idle {
-        let (slot, dir) = (slot.clone(), dir.clone());
+        let (slot, dir, mirror) = (slot.clone(), dir.clone(), mirror.clone());
         std::thread::Builder::new().name("cs-idle".into()).spawn(move || loop {
             std::thread::sleep(Duration::from_millis(250));
             if slot.idle_for().is_some_and(|idle| idle >= limit) {
                 log::info!("no viewer for {}s; exiting (--exit-when-idle)", limit.as_secs());
                 runtime::remove_agent_files(&dir);
+                if let Some(m) = &mirror {
+                    runtime::remove_agent_files(m);
+                }
                 std::process::exit(0);
             }
         })?;

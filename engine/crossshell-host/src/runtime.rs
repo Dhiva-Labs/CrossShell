@@ -3,8 +3,15 @@
 //! single-instance lock and the log path.
 //!
 //! Linux:   `${XDG_RUNTIME_DIR:-$HOME/.cache}/crossshell/` (dir 0700, files 0600)
-//! Windows: `%LOCALAPPDATA%\CrossShell\` (per-user ACL by default)
+//! Windows: `%USERPROFILE%\.crossshell\` (inherits the profile's per-user ACL)
+//!
+//! Not under `%LOCALAPPDATA%` on Windows: when the agent runs with an MSIX
+//! package identity, AppData writes land in a private per-package store that
+//! a viewer's SSH session never sees. Earlier builds used
+//! `%LOCALAPPDATA%\CrossShell\`; `host.json` is mirrored there (see
+//! [`legacy_runtime_dir`]) so an older viewer still finds the agent.
 
+use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -34,10 +41,7 @@ pub struct SessionStatus {
 pub fn runtime_dir() -> PathBuf {
     #[cfg(windows)]
     {
-        let base = std::env::var_os("LOCALAPPDATA")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| std::env::temp_dir());
-        base.join("CrossShell")
+        windows_runtime_dir(std::env::var_os("USERPROFILE"), std::env::var_os("LOCALAPPDATA"))
     }
     #[cfg(not(windows))]
     {
@@ -47,6 +51,32 @@ pub fn runtime_dir() -> PathBuf {
             .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))
             .unwrap_or_else(std::env::temp_dir);
         base.join("crossshell")
+    }
+}
+
+/// The Windows runtime dir from `USERPROFILE` / `LOCALAPPDATA`:
+/// `%USERPROFILE%\.crossshell`, else the old `%LOCALAPPDATA%\CrossShell`,
+/// else the temp dir.
+pub fn windows_runtime_dir(userprofile: Option<OsString>, localappdata: Option<OsString>) -> PathBuf {
+    match (userprofile.filter(|v| !v.is_empty()), localappdata.filter(|v| !v.is_empty())) {
+        (Some(home), _) => PathBuf::from(home).join(".crossshell"),
+        (None, Some(local)) => PathBuf::from(local).join("CrossShell"),
+        (None, None) => std::env::temp_dir().join("CrossShell"),
+    }
+}
+
+/// Where earlier Windows builds kept the runtime files
+/// (`%LOCALAPPDATA%\CrossShell`). The default agent mirrors `host.json`
+/// there so older viewers, which only look there, still find it. `None` on
+/// other platforms.
+pub fn legacy_runtime_dir() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        std::env::var_os("LOCALAPPDATA").filter(|v| !v.is_empty()).map(|l| PathBuf::from(l).join("CrossShell"))
+    }
+    #[cfg(not(windows))]
+    {
+        None
     }
 }
 
@@ -174,6 +204,22 @@ mod tests {
         let lock = lock_instance(&dir).unwrap();
         assert!(lock.is_some());
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn windows_dir_is_outside_appdata() {
+        let os = |s: &str| Some(OsString::from(s));
+        assert_eq!(
+            windows_runtime_dir(os(r"C:\Users\alex"), os(r"C:\Users\alex\AppData\Local")),
+            PathBuf::from(r"C:\Users\alex").join(".crossshell")
+        );
+        assert_eq!(
+            windows_runtime_dir(os(""), os(r"C:\Users\alex\AppData\Local")),
+            PathBuf::from(r"C:\Users\alex\AppData\Local").join("CrossShell")
+        );
+        assert_eq!(windows_runtime_dir(None, None), std::env::temp_dir().join("CrossShell"));
+        #[cfg(windows)]
+        assert!(runtime_dir().ends_with(".crossshell"));
     }
 
     #[test]
