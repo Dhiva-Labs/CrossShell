@@ -114,14 +114,25 @@ class LocalAgent {
     }
   }
 
-  /// Stop sharing: kill the agent (ends any session immediately).
+  /// Stop sharing: end the agent (and any session) immediately. It is asked
+  /// to exit through a `stop` file in its runtime dir, which also reaches an
+  /// agent a peer started elevated (this app can't kill that one), and
+  /// killed as well where possible.
   Future<void> stop() async {
-    final f = File(p.join(LocalSystem.agentRuntimeDir, 'host.json'));
-    try {
-      final m = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
-      final pid = m['pid'];
-      if (pid is int && await _isAgent(pid)) Process.killPid(pid);
-    } catch (_) {}
+    for (final dir in LocalSystem.agentRuntimeDirs) {
+      final f = File(p.join(dir, 'host.json'));
+      try {
+        final m = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
+        final pid = m['pid'];
+        if (pid is int && await _isAgent(pid)) {
+          // Only this build's agent (in the current dir) reads it.
+          if (dir == LocalSystem.agentRuntimeDir) {
+            await File(p.join(dir, 'stop')).writeAsString('');
+          }
+          Process.killPid(pid);
+        }
+      } catch (_) {}
+    }
   }
 
   int? _livePid;

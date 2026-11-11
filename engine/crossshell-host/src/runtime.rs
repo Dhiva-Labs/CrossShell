@@ -175,6 +175,18 @@ pub fn remove_agent_files(dir: &Path) {
     let _ = fs::remove_file(status_json_path(dir));
 }
 
+/// A request from the local app to stop the agent: an empty `stop` file in
+/// the runtime dir. Used because the app can't always kill the agent
+/// itself (on Windows a remotely started agent may run elevated).
+pub fn stop_request_path(dir: &Path) -> PathBuf {
+    dir.join("stop")
+}
+
+/// True (and the request is consumed) if a stop was requested.
+pub fn take_stop_request(dir: &Path) -> bool {
+    fs::remove_file(stop_request_path(dir)).is_ok()
+}
+
 /// Fresh 32-byte session token.
 pub fn new_token() -> anyhow::Result<[u8; crossshell_proto::TOKEN_LEN]> {
     let mut t = [0u8; crossshell_proto::TOKEN_LEN];
@@ -203,6 +215,10 @@ mod tests {
         }
         let lock = lock_instance(&dir).unwrap();
         assert!(lock.is_some());
+        assert!(!take_stop_request(&dir));
+        fs::write(stop_request_path(&dir), b"").unwrap();
+        assert!(take_stop_request(&dir));
+        assert!(!take_stop_request(&dir), "a request is consumed");
         fs::remove_dir_all(&dir).unwrap();
     }
 

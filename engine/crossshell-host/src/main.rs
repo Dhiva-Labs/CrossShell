@@ -135,8 +135,10 @@ fn run() -> anyhow::Result<()> {
         log::info!("another crossshell-host is already running in {}; exiting", dir.display());
         return Ok(());
     };
-    // A previous agent killed mid-session leaves its status behind.
+    // A previous agent killed mid-session leaves its status behind, and a
+    // stop request may be left over from an agent that was killed instead.
     let _ = std::fs::remove_file(runtime::status_json_path(&dir));
+    let _ = runtime::take_stop_request(&dir);
 
     // Preferred port, else any free one (recorded in host.json).
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, args.port))
@@ -180,6 +182,22 @@ fn run() -> anyhow::Result<()> {
         notify,
     });
     let slot = Arc::new(SessionSlot::default());
+    {
+        // The app turns screen sharing off (or "Disconnect them") by asking
+        // for a stop: it can't kill an agent that runs elevated.
+        let (dir, mirror) = (dir.clone(), mirror.clone());
+        std::thread::Builder::new().name("cs-stop".into()).spawn(move || loop {
+            std::thread::sleep(Duration::from_millis(250));
+            if runtime::take_stop_request(&dir) {
+                log::info!("stop requested by the app; exiting");
+                runtime::remove_agent_files(&dir);
+                if let Some(m) = &mirror {
+                    runtime::remove_agent_files(m);
+                }
+                std::process::exit(0);
+            }
+        })?;
+    }
     if let Some(limit) = args.exit_when_idle {
         let (slot, dir, mirror) = (slot.clone(), dir.clone(), mirror.clone());
         std::thread::Builder::new().name("cs-idle".into()).spawn(move || loop {

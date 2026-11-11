@@ -263,6 +263,13 @@ written by the local app at startup — never taken from the network.
 The agent binds 127.0.0.1:47821 (falls back to any free port, recorded in
 host.json). Single instance via the host.json pid check + bind.
 
+To stop the agent (sharing turned off, "Disconnect them") the app writes an
+empty `stop` file into the runtime dir and also kills the pid where it can;
+the agent polls for `stop` every 250 ms, deletes it and exits. On Windows a
+peer may have started the agent elevated, out of the unelevated app's reach,
+so the file is what actually stops it there. A leftover `stop` is deleted
+when an agent starts.
+
 ### Wire protocol (crossshell-proto)
 
 All integers little-endian. Message = `u8 type | u32 len | payload[len]`.
