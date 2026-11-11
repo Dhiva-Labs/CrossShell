@@ -75,7 +75,7 @@ class _SetupPageState extends State<SetupPage> {
             ),
             title: Text(app.identity.name, style: theme.textTheme.titleLarge),
             subtitle: Text(
-              '${LocalSystem.userName} · $os · ${h?.addresses.join(', ') ?? '…'}',
+              '${app.userName} · $os · ${h?.addresses.join(', ') ?? '…'}',
             ),
           ),
           const SizedBox(height: 8),

@@ -155,6 +155,9 @@ class AppController extends ChangeNotifier {
 
   bool isOnline(Peer peer) => seen.any((s) => s.beacon.id == peer.id);
 
+  /// This machine's user name, as shown on the "This machine" page.
+  String get userName => LocalSystem.userName;
+
   Future<void> init() async {
     final support = await getApplicationSupportDirectory();
     appDir = support.path;
