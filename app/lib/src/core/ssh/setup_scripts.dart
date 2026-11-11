@@ -97,8 +97,9 @@ Step 'firewall' {
       @{ Name = 'CrossShell-Pairing'; Display = 'CrossShell Pairing'; Proto = 'TCP'; Port = 47820 },
       @{ Name = 'CrossShell-Discovery'; Display = 'CrossShell Discovery'; Proto = 'UDP'; Port = 47820 })) {
     Remove-NetFirewallRule -Name \$r.Name -ErrorAction SilentlyContinue
-    New-NetFirewallRule -Name \$r.Name -DisplayName \$r.Display -Direction Inbound -Action Allow ``
-      -Protocol \$r.Proto -LocalPort \$r.Port -RemoteAddress LocalSubnet -Profile Any | Out-Null
+    # Domain and Private networks only: on a Public network the user has to
+    # switch the network to Private first (the checks page says so).
+    New-NetFirewallRule -Name \$r.Name -DisplayName \$r.Display -Direction Inbound -Action Allow -Protocol \$r.Proto -LocalPort \$r.Port -RemoteAddress LocalSubnet -Profile Domain,Private | Out-Null
   }
 }
 ''';

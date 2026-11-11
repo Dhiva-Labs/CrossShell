@@ -79,6 +79,30 @@ class LocalSystem {
     return (r.stdout as String).contains('S-1-5-32-544');
   }
 
+  /// Windows: the connected networks whose profile is Public (interface
+  /// names). CrossShell's firewall rules only cover Domain and Private
+  /// networks, so other PCs can't find or reach this one over these.
+  /// Empty when there are none or the check isn't possible.
+  static Future<List<String>> windowsPublicNetworks() async {
+    if (!Platform.isWindows) return const [];
+    try {
+      final r = await Process.run('powershell.exe', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        r"Get-NetConnectionProfile | Where-Object { $_.NetworkCategory -eq 'Public' } | ForEach-Object { $_.InterfaceAlias }",
+      ]).timeout(const Duration(seconds: 10));
+      if (r.exitCode != 0) return const [];
+      return (r.stdout as String)
+          .split('\n')
+          .map((l) => l.trim())
+          .where((l) => l.isNotEmpty)
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
   /// Directory holding persistent agent metadata other machines read over
   /// SSH (`agent-path`): Linux `~/.local/state/crossshell`, Windows
   /// `%USERPROFILE%\.crossshell`. Mirrors crossshell-host's runtime paths.

@@ -69,6 +69,7 @@ class LocalHealth {
     required this.agentPath,
     required this.agentError,
     required this.addresses,
+    this.publicNetworks = const [],
   });
   final String? sshServerBanner;
   final bool clientKeyReady;
@@ -79,6 +80,10 @@ class LocalHealth {
   /// Set when screen sharing is allowed but the agent failed to start.
   final String? agentError;
   final List<String> addresses;
+
+  /// Windows: connected networks with the Public profile, where CrossShell's
+  /// firewall rules (Domain, Private) don't apply.
+  final List<String> publicNetworks;
 
   bool get sshServerRunning => sshServerBanner != null;
 }
@@ -228,6 +233,7 @@ class AppController extends ChangeNotifier {
       agentPath: localAgent.agentPath,
       agentError: settings.allowScreenSharing ? localAgent.startError : null,
       addresses: await localAddresses(),
+      publicNetworks: await LocalSystem.windowsPublicNetworks(),
     );
     notifyListeners();
   }

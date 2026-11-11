@@ -170,6 +170,19 @@ class _SetupPageState extends State<SetupPage> {
             okText: 'Listening on TCP 47820',
             badText: h?.pairingError ?? '',
           ),
+          if (Platform.isWindows)
+            _check(
+              ok: h?.publicNetworks.isEmpty,
+              title: 'Network type',
+              okText:
+                  'Private or work network: other PCs on it can find and reach this one',
+              badText:
+                  '${h?.publicNetworks.join(', ')} is set to Public. CrossShell only opens the firewall on '
+                  'Private and work (domain) networks, so other PCs can\'t find, pair with or sign in to '
+                  'this one over it. On a network you trust (home, office), open Settings > Network & '
+                  'internet > ${h?.publicNetworks.length == 1 ? h!.publicNetworks.first : 'your connection'} '
+                  'and set "Network profile type" to Private, then press Re-check.',
+            ),
           _check(
             ok: h == null ? null : h.agentPath != null && h.agentError == null,
             title: 'Screen sharing agent',
@@ -195,6 +208,14 @@ class _SetupPageState extends State<SetupPage> {
               ),
             ],
           ),
+          if (Platform.isWindows)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                'The firewall rules cover Private and work (domain) networks only, not Public ones.',
+                style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+              ),
+            ),
           _section(context, 'Screen sharing'),
           SwitchListTile(
             value: app.settings.allowScreenSharing,
