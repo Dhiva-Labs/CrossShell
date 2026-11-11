@@ -110,8 +110,8 @@ flutter:
 msix_config:
   display_name: CrossShell
   publisher_display_name: Dhiva-Labs
-  identity_name: REPLACE-WITH-PARTNER-CENTER-IDENTITY-NAME # replace with the Partner Center value
-  publisher: CN=REPLACE-WITH-PARTNER-CENTER-PUBLISHER # replace with the Partner Center value
+  identity_name: Dhiva-Labs.CrossShell
+  publisher: CN=0F69015A-AA5B-431D-970A-165099309E53
   msix_version: 0.2.0.0
   logo_path: linux/crossshell-512.png
   languages: en-us
