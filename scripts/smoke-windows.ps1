@@ -17,7 +17,12 @@
      and starts the agent), so use this step on a throwaway machine such as a
      CI runner.
 
-  Steps 1 and 2 keep the engine's runtime files in a private %LOCALAPPDATA%.
+     Screen sharing is opt-in, so if the app has no settings file yet this
+     step writes one with sharing on (and deletes it afterwards).
+
+  Steps 1 and 2 keep the engine's runtime files in a private %USERPROFILE%
+  (the agent uses %USERPROFILE%\.crossshell) and %LOCALAPPDATA% (where it
+  mirrors host.json for older viewers).
 #>
 param(
     [Parameter(Mandatory)]
@@ -140,6 +145,16 @@ try {
         $agentDir = Join-Path $env:USERPROFILE '.crossshell'
         Get-Process -Name 'crossshell-host' -ErrorAction SilentlyContinue | Stop-Process -Force
         Remove-Item -Force -ErrorAction SilentlyContinue "$agentDir\host.json"
+        # Screen sharing is opt-in: the app starts the agent only when it is on.
+        $settings = Join-Path $env:APPDATA 'com.dhivalabs\cross_shell\settings.json'
+        $wroteSettings = $false
+        if (-not (Test-Path $settings)) {
+            New-Item -ItemType Directory -Force -Path (Split-Path $settings) | Out-Null
+            Set-Content -Path $settings -Value '{"sshPort":22,"allowScreenSharing":true}' -Encoding ascii
+            $wroteSettings = $true
+        } elseif (-not (Get-Content -Raw $settings | ConvertFrom-Json).allowScreenSharing) {
+            throw "screen sharing is off in $settings; turn it on (or remove the file) for this step"
+        }
         $env:CROSSSHELL_SHOT = "$tmp\app.png"
         $env:CROSSSHELL_SHOT_DELAY = '8'
         $env:CROSSSHELL_TEST_LOG = "$tmp\hooks.log"
@@ -182,6 +197,7 @@ try {
         $m = Get-Content -Raw "$agentDir\host.json" | ConvertFrom-Json
         "agent started by the app: pid $($m.pid) port $($m.port) ver $($m.ver)"
         Stop-Process -Id $m.pid -Force -ErrorAction SilentlyContinue
+        if ($wroteSettings) { Remove-Item -Force -ErrorAction SilentlyContinue $settings }
     }
     Write-Host 'smoke test passed'
 } finally {

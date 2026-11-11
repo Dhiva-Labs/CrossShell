@@ -257,8 +257,15 @@ in it is alive (see `remote_commands.dart`). Remote commands are
 PowerShell, no quoting pitfalls).
 
 The agent path a peer starts remotely is read from `agent-path` in the
-state dir (`~/.local/state/crossshell/`, `%LOCALAPPDATA%\CrossShell\`),
-written by the local app at startup — never taken from the network.
+state dir (`~/.local/state/crossshell/`, `%USERPROFILE%\.crossshell\`, with
+`%LOCALAPPDATA%\CrossShell\` as the fallback for older builds), written by
+the local app — never taken from the network. Screen sharing is opt-in
+(`allowScreenSharing`, off when missing from settings.json): the app writes
+`agent-path` (Windows: also a copy in `%LOCALAPPDATA%\CrossShell\` for older
+peers) only while it is on, and deletes it when it is turned off, so a peer
+can't start the agent then. The Snap is the exception: peers fall back to
+`/snap/bin/crossshell.host`, so turning sharing off there only stops the
+running agent.
 
 The agent binds 127.0.0.1:47821 (falls back to any free port, recorded in
 host.json). Single instance via the host.json pid check + bind.

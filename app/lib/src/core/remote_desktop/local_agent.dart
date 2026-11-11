@@ -32,6 +32,8 @@ class LocalAgent {
   /// Record the agent path where peers look for it over SSH
   /// (`agent-path` in the state dir) — a peer never takes a path from the
   /// network, only from this file, read through an authenticated SSH session.
+  /// Only published while screen sharing is allowed: without it a peer's
+  /// "start the agent" command fails (see [unpublishPath]).
   Future<void> publishPath() async {
     final exe = agentPath;
     // Snap installs need no published path: peers start the stable

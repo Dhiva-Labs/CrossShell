@@ -28,11 +28,12 @@ const appVersion = '0.2.0';
 const pairingPort = 47820;
 
 class AppSettings {
-  AppSettings({this.sshPort = 22, this.allowScreenSharing = true});
+  AppSettings({this.sshPort = 22, this.allowScreenSharing = false});
   int sshPort;
 
-  /// Keep the screen-share agent running so paired machines can view and
-  /// control this screen.
+  /// Keep the screen-share agent running and published so paired machines
+  /// can view and control this screen. Opt-in: off unless the user turned
+  /// it on (a settings file saved with `true` keeps it on).
   bool allowScreenSharing;
 
   Map<String, dynamic> toJson() => {
@@ -42,7 +43,7 @@ class AppSettings {
 
   factory AppSettings.fromJson(Map<String, dynamic> m) => AppSettings(
     sshPort: (m['sshPort'] as int?) ?? 22,
-    allowScreenSharing: m['allowScreenSharing'] as bool? ?? true,
+    allowScreenSharing: m['allowScreenSharing'] as bool? ?? false,
   );
 }
 
@@ -142,8 +143,13 @@ class AppController extends ChangeNotifier {
 
     await _startPairingServer();
 
-    await localAgent.publishPath();
-    if (settings.allowScreenSharing) await localAgent.ensureRunning();
+    if (settings.allowScreenSharing) {
+      await localAgent.publishPath();
+      await localAgent.ensureRunning();
+    } else {
+      // Withdraw a path an earlier build (sharing on by default) published.
+      await localAgent.unpublishPath();
+    }
     localAgent.status.listen((s) {
       watching = s;
       notifyListeners();
@@ -184,8 +190,10 @@ class AppController extends ChangeNotifier {
     );
     discovery.updateSelf(_beacon());
     if (settings.allowScreenSharing) {
+      await localAgent.publishPath();
       await localAgent.ensureRunning();
     } else {
+      await localAgent.unpublishPath();
       await localAgent.stop();
     }
     notifyListeners();

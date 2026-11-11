@@ -115,6 +115,13 @@ echo "== 3. app: render a frame and start the bundled agent"
   fresh_env app
   export CROSSSHELL_SHOT="$tmp/app.png" CROSSSHELL_SHOT_DELAY=8 GDK_BACKEND=x11 LIBGL_ALWAYS_SOFTWARE=1
   export CROSSSHELL_TEST_LOG="$tmp/hooks.log" CROSSSHELL_TEST_AUTOCONFIRM=1
+  # Screen sharing is opt-in: turn it on, or the app won't start the agent.
+  # path_provider uses the application id, or the executable name if that
+  # folder exists; write the same settings to both.
+  for d in com.dhivalabs.cross_shell cross_shell; do
+    mkdir -p -m 700 "$XDG_DATA_HOME/$d"
+    printf '{"sshPort":22,"allowScreenSharing":true}' > "$XDG_DATA_HOME/$d/settings.json"
+  done
   # The app starts crossshell-host (next to it) when it opens, and exits by
   # itself once it has saved the picture.
   dbus-run-session -- "$bundle/cross_shell" > "$tmp/app.log" 2>&1 &

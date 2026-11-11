@@ -223,12 +223,12 @@ class _SetupPageState extends State<SetupPage> {
               app.settings.allowScreenSharing = v;
               await app.saveSettings();
             },
-            title: const Text(
-              'Let paired machines view and control this screen',
-            ),
+            title: const Text('Let paired PCs view and control this screen'),
             subtitle: const Text(
-              'Only machines you paired can connect, through SSH. '
-              'You will see a banner while someone is watching.',
+              'Off unless you turn it on. When it is on, any PC you have paired with can see this '
+              'screen and use its mouse and keyboard, without anyone at this PC having to accept. '
+              'A notification is shown on this PC while someone is viewing. '
+              'You can turn this off at any time, which also disconnects anyone viewing.',
             ),
           ),
           _section(context, 'SSH'),
