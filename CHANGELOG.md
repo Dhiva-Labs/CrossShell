@@ -29,6 +29,41 @@
   frames, expected pixels, every message type) for other implementations of
   the protocol.
 
+### Microsoft Store preparation
+
+- **Windows state files moved** from `%LOCALAPPDATA%\CrossShell` to
+  `%USERPROFILE%\.crossshell` (`agent-path`, `host.json`, `status.json`,
+  `host.log`, `host.lock`): an MSIX-packaged app's AppData writes are private
+  to the package, so a peer reading them over SSH would see nothing. The old
+  location is still read, and `agent-path` and `host.json` are mirrored there,
+  so older CrossShell builds keep working with this one in both directions.
+- The elevated setup's result file goes under `%USERPROFILE%\.crossshell\tmp`
+  instead of `%TEMP%`.
+- **Screen sharing is opt-in**: off unless turned on under *This machine*
+  (a settings file already saved with it on keeps it on). While it is off the
+  agent path is not published, so paired machines can't start the agent
+  (except with the Snap, see PLAN.md).
+- **Remove CrossShell changes from this PC** (*This machine*): unpairs all
+  machines, stops the agent and, with one admin prompt on Windows, deletes the
+  `CrossShellHost` scheduled task, the CrossShell firewall rules and
+  CrossShell's admin keys, and reverts OpenSSH's `DefaultShell` if CrossShell
+  set it (recorded from now on); removes the `Include` line and
+  `~/.ssh/crossshell`. sshd and the OpenSSH Server feature are left alone.
+- Windows firewall rules are created for the Domain and Private profiles
+  only (were Any). *This machine* flags networks set to Public.
+- Fixed: the Windows firewall step of the elevated setup never worked: a
+  doubled backtick in the generated PowerShell is not a line continuation, so
+  `New-NetFirewallRule` was split in two.
+- `crossshell-host --no-notify` is ignored when the agent runs from an MSIX
+  package (`WindowsApps`); the viewing notice always shows there.
+- Turning screen sharing off (or *Disconnect them*) now also stops an agent
+  that a peer started elevated: the app leaves a `stop` file in the runtime
+  dir, which the agent checks every 250 ms (Windows does not let an
+  unelevated process terminate an elevated one).
+- `store/`: Microsoft Store packaging notes, listing, privacy policy and
+  certification notes; `msix_config` in `app/pubspec.yaml` (identity values
+  are placeholders until the name is reserved in Partner Center).
+
 ### Arm64 (prepared as 0.1.2, first released here)
 
 #### Added

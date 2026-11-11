@@ -115,7 +115,12 @@ architectures).
 1. Install and open CrossShell on both machines.
 2. Open **This machine** (the gear icon) and fix anything red. Usually that
    means *Set up SSH server*, which takes one admin prompt (UAC on Windows,
-   polkit on Linux).
+   polkit on Linux). On Windows the firewall rules cover Private and work
+   networks only: if the network is set to Public, the page says so, and
+   you switch it to Private in *Settings, Network & internet*.
+   To let a paired machine view and control this screen, turn on *Screen
+   sharing* there (it is off by default). Before uninstalling, use *Remove
+   CrossShell changes from this PC* on the same page.
 3. The other machine appears under **Nearby**. Click **Pair** and check
    that both screens show the same code.
 4. Use the machine card: **Terminal**, **Files**, **Remote desktop**, or
