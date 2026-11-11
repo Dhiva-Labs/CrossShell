@@ -1,5 +1,6 @@
 name: cross_shell
-description: "A new Flutter project."
+# Also the package description in the Microsoft Store manifest (msix).
+description: "SSH, files, port forwards and remote desktop between your own PCs on the local network."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -54,6 +55,9 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
 
+  # Microsoft Store packaging (see ../store/README.md).
+  msix: ^3.18.0
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
@@ -95,3 +99,24 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# Packaging for the Microsoft Store (steps in ../store/README.md):
+#   flutter build windows --release, copy crossshell-host.exe and
+#   crossshell-view.exe into build\windows\x64\runner\Release, then
+#   dart run msix:create --store
+# identity_name and publisher are PLACEHOLDERS: replace them with the values
+# from Partner Center (Product identity page) once the name is reserved. The
+# Store rejects a package whose values differ.
+msix_config:
+  display_name: CrossShell
+  publisher_display_name: Dhiva-Labs
+  identity_name: REPLACE-WITH-PARTNER-CENTER-IDENTITY-NAME # replace with the Partner Center value
+  publisher: CN=REPLACE-WITH-PARTNER-CENTER-PUBLISHER # replace with the Partner Center value
+  msix_version: 0.2.0.0
+  logo_path: linux/crossshell-512.png
+  languages: en-us
+  capabilities: internetClient,privateNetworkClientServer
+  store: true
+  # The engine binaries are copied into the Release folder after the
+  # Flutter build; don't let msix rebuild it.
+  build_windows: false
