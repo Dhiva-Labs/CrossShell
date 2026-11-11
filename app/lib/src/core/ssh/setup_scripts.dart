@@ -171,7 +171,12 @@ class StepResult {
 /// declines or any step fails.
 Future<List<StepResult>> runWindowsElevated(List<WindowsStep> steps) async {
   if (!Platform.isWindows) throw SetupError('not on Windows');
-  final tmp = await Directory.systemTemp.createTemp('crossshell-setup');
+  // Not %TEMP% (under AppData\Local): a packaged app's view of AppData is
+  // private to the package, so it might not see what the elevated,
+  // unpackaged PowerShell writes there. The profile root is shared.
+  final tmpRoot = Directory(setupTempRoot(Platform.environment));
+  await tmpRoot.create(recursive: true);
+  final tmp = await tmpRoot.createTemp('setup-');
   final resultFile = p.join(tmp.path, 'result.json');
   try {
     final inner = encodePowerShell(buildWindowsScript(steps, resultFile));
@@ -219,8 +224,14 @@ Future<List<StepResult>> runWindowsElevated(List<WindowsStep> steps) async {
     return results;
   } finally {
     await tmp.delete(recursive: true).catchError((_) => tmp);
+    // Leave no empty tmp folder behind (fails harmlessly if not empty).
+    await tmpRoot.delete().catchError((_) => tmpRoot);
   }
 }
+
+/// `%USERPROFILE%\.crossshell\tmp`: where the elevated script's result goes.
+String setupTempRoot(Map<String, String> env) =>
+    p.windows.join(LocalSystem.windowsStateDir(env), 'tmp');
 
 // ------------------------------------------------------------------ Linux
 
