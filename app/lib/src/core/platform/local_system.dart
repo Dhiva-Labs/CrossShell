@@ -81,21 +81,51 @@ class LocalSystem {
 
   /// Directory holding persistent agent metadata other machines read over
   /// SSH (`agent-path`): Linux `~/.local/state/crossshell`, Windows
-  /// `%LOCALAPPDATA%\CrossShell`. Mirrors crossshell-host's runtime paths.
+  /// `%USERPROFILE%\.crossshell`. Mirrors crossshell-host's runtime paths.
+  ///
+  /// Not under AppData on Windows: an MSIX-packaged app's writes there go to
+  /// a private per-package store that an SSH session never sees.
   static String get stateDir {
     final env = Platform.environment;
-    if (Platform.isWindows) {
-      return p.join(
-        env['LOCALAPPDATA'] ?? p.join(homeDir, 'AppData', 'Local'),
-        'CrossShell',
-      );
-    }
+    if (Platform.isWindows) return windowsStateDir(env);
     final xdg = env['XDG_STATE_HOME'];
     return p.join(
       xdg != null && xdg.isNotEmpty ? xdg : p.join(homeDir, '.local', 'state'),
       'crossshell',
     );
   }
+
+  /// `%USERPROFILE%\.crossshell` (the Windows state and runtime dir).
+  static String windowsStateDir(Map<String, String> env) => p.windows.join(
+    env['USERPROFILE'] ?? Directory.current.path,
+    '.crossshell',
+  );
+
+  /// Where earlier builds kept the Windows state: `%LOCALAPPDATA%\CrossShell`.
+  /// Still read as a fallback, and `agent-path` is mirrored there, so an
+  /// older (unpackaged) CrossShell on the other machine keeps working in
+  /// both directions. A packaged build's writes there are private to the
+  /// package, which is harmless.
+  static String legacyWindowsStateDir(Map<String, String> env) =>
+      p.windows.join(
+        env['LOCALAPPDATA'] ??
+            p.windows.join(
+              env['USERPROFILE'] ?? Directory.current.path,
+              'AppData',
+              'Local',
+            ),
+        'CrossShell',
+      );
+
+  /// Windows state dirs to read, current layout first.
+  static List<String> get windowsStateDirs {
+    final env = Platform.environment;
+    return [windowsStateDir(env), legacyWindowsStateDir(env)];
+  }
+
+  /// Dirs to look in for the local agent's runtime files, current first.
+  static List<String> get agentRuntimeDirs =>
+      Platform.isWindows ? windowsStateDirs : [agentRuntimeDir];
 
   /// Runtime dir of the local crossshell-host (`host.json`, `status.json`).
   static String get agentRuntimeDir {

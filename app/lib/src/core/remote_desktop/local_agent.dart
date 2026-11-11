@@ -40,6 +40,28 @@ class LocalAgent {
     if (exe == null || LocalSystem.inSnap) return;
     await Directory(LocalSystem.stateDir).create(recursive: true);
     await File(p.join(LocalSystem.stateDir, 'agent-path')).writeAsString(exe);
+    if (Platform.isWindows) {
+      // Older CrossShell builds on a peer only look in %LOCALAPPDATA%.
+      try {
+        final legacy = LocalSystem.legacyWindowsStateDir(Platform.environment);
+        await Directory(legacy).create(recursive: true);
+        await File(p.join(legacy, 'agent-path')).writeAsString(exe);
+      } catch (_) {}
+    }
+  }
+
+  /// Withdraw the published agent path (screen sharing turned off), so
+  /// paired machines can no longer start the agent here.
+  Future<void> unpublishPath() async {
+    final dirs = Platform.isWindows
+        ? LocalSystem.windowsStateDirs
+        : [LocalSystem.stateDir];
+    for (final d in dirs) {
+      try {
+        final f = File(p.join(d, 'agent-path'));
+        if (await f.exists()) await f.delete();
+      } catch (_) {}
+    }
   }
 
   /// Why the agent could not be started (null = started or not needed).

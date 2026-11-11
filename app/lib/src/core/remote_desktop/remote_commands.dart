@@ -23,15 +23,24 @@ $script
 """;
 String _sh(String script) => 'sh -c ${shQuote(script)}';
 
+/// Windows state dirs on a peer, current layout first:
+/// `%USERPROFILE%\.crossshell`, then `%LOCALAPPDATA%\CrossShell` where
+/// earlier (unpackaged) builds keep it.
+const _psStateDirs =
+    r"@((Join-Path $env:USERPROFILE '.crossshell'), (Join-Path $env:LOCALAPPDATA 'CrossShell'))";
+
 /// Print host.json if the agent it describes is still running; print
 /// nothing otherwise.
 String readHostInfoCommand({required bool windows}) => windows
-    ? _ps(r'''
-$f = Join-Path $env:LOCALAPPDATA 'CrossShell\host.json'
-if (Test-Path -LiteralPath $f) {
-  $raw = Get-Content -LiteralPath $f -Raw
-  $j = $raw | ConvertFrom-Json
-  if (Get-Process -Id $j.pid -ErrorAction SilentlyContinue) { [Console]::Out.Write($raw) }
+    ? _ps('''
+foreach (\$d in $_psStateDirs) {
+  \$f = Join-Path \$d 'host.json'
+  if (-not (Test-Path -LiteralPath \$f)) { continue }
+  try {
+    \$raw = Get-Content -LiteralPath \$f -Raw
+    \$j = \$raw | ConvertFrom-Json
+  } catch { continue }
+  if (\$j.pid -and (Get-Process -Id \$j.pid -ErrorAction SilentlyContinue)) { [Console]::Out.Write(\$raw); break }
 }
 ''')
     : _sh(r'''
@@ -52,10 +61,15 @@ exit 0
 /// the user is an admin, so it can also drive elevated windows).
 /// Linux: `systemd-run --user` inherits the graphical session's environment.
 String startAgentCommand({required bool windows}) => windows
-    ? _ps(r'''
-$ErrorActionPreference = 'Stop'
-$pathFile = Join-Path $env:LOCALAPPDATA 'CrossShell\agent-path'
-if (-not (Test-Path -LiteralPath $pathFile)) { throw 'CrossShell has never been started on this machine' }
+    ? _ps('''
+\$ErrorActionPreference = 'Stop'
+\$pathFile = \$null
+foreach (\$d in $_psStateDirs) {
+  \$f = Join-Path \$d 'agent-path'
+  if (Test-Path -LiteralPath \$f) { \$pathFile = \$f; break }
+}
+if (-not \$pathFile) { throw 'Screen sharing is turned off on this machine (or CrossShell has never been started there)' }
+''' r'''
 $exe = (Get-Content -LiteralPath $pathFile -Raw).Trim()
 if (-not (Test-Path -LiteralPath $exe)) { throw "CrossShell agent not found at $exe (moved or uninstalled?)" }
 # USERDOMAIN is unset in SSH sessions; the token knows the real account.
@@ -79,7 +93,7 @@ if [ -f "$pf" ]; then
 elif [ -x /snap/bin/crossshell.host ]; then
   exe=/snap/bin/crossshell.host
 else
-  echo "CrossShell has never been started on this machine" >&2; exit 3
+  echo "Screen sharing is turned off on this machine (or CrossShell has never been started there)" >&2; exit 3
 fi
 [ -x "$exe" ] || { echo "CrossShell agent not found at $exe (moved or uninstalled?)" >&2; exit 4; }
 systemd-run --user --collect --quiet --unit="crossshell-host-$(date +%s)" "$exe"

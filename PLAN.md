@@ -241,7 +241,13 @@ build has.
 ### host.json
 
 Linux `${XDG_RUNTIME_DIR:-$HOME/.cache}/crossshell/host.json` (dir 0700, file 0600);
-Windows `%LOCALAPPDATA%\CrossShell\host.json`. Contents:
+Windows `%USERPROFILE%\.crossshell\host.json` (inherits the profile's
+per-user ACL). Not under `%LOCALAPPDATA%`: writes there by a process with an
+MSIX package identity go to a private per-package store an SSH session never
+sees. Builds before this used `%LOCALAPPDATA%\CrossShell\`, so the default
+agent also mirrors `host.json` there for older viewers, and the Windows
+remote commands read `%USERPROFILE%\.crossshell` first, then
+`%LOCALAPPDATA%\CrossShell` (an older peer's agent). Contents:
 `{"v":1,"port":47821,"token":"<64 hex>","pid":1234,"ver":"0.1.0"}`.
 `--runtime-dir DIR` moves it (and the lock, status and log) to `DIR`.
 Token: 32 random bytes, new per agent start. Read over SSH only if the pid

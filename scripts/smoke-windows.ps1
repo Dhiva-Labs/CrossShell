@@ -80,16 +80,21 @@ function Get-PngSize([string]$Path) {
 # host (--synthetic or native) on a private runtime dir, then view --snapshot.
 function Test-Engine([string]$Name, [int]$Port, [string[]]$HostArgs, [int]$Frames) {
     $local = Join-Path $tmp "$Name-localappdata"
-    New-Item -ItemType Directory -Path $local | Out-Null
+    $profileDir = Join-Path $tmp "$Name-userprofile"
+    New-Item -ItemType Directory -Path $local, $profileDir | Out-Null
     $saved = $env:LOCALAPPDATA
+    $savedProfile = $env:USERPROFILE
     $env:LOCALAPPDATA = $local
+    $env:USERPROFILE = $profileDir
     $hostProc = $null
     try {
         $hostProc = Start-Process -FilePath "$Dir\crossshell-host.exe" -PassThru `
             -ArgumentList ($HostArgs + @('--no-clipboard', '--port', "$Port")) `
             -RedirectStandardOutput "$tmp\$Name-host.out" -RedirectStandardError "$tmp\$Name-host.err"
-        $info = "$local\CrossShell\host.json"
+        $info = "$profileDir\.crossshell\host.json"
         Wait-ForFile $info 20
+        # The copy for older viewers in the old location.
+        Wait-ForFile "$local\CrossShell\host.json" 5
         $token = (Get-Content -Raw $info | ConvertFrom-Json).token
         Set-Content -Path "$tmp\$Name.token" -Value $token
         $png = "$tmp\$Name.png"
@@ -101,6 +106,7 @@ function Test-Engine([string]$Name, [int]$Port, [string[]]$HostArgs, [int]$Frame
     } finally {
         if ($hostProc -and -not $hostProc.HasExited) { Stop-Process -Id $hostProc.Id -Force }
         $env:LOCALAPPDATA = $saved
+        $env:USERPROFILE = $savedProfile
     }
 }
 
@@ -131,7 +137,7 @@ try {
         Write-Host '== 3. app: render a frame and start the bundled agent'
         # The app finds its folders through the Windows known-folder API, so
         # it needs the real profile; clear what an earlier run left behind.
-        $agentDir = Join-Path $env:LOCALAPPDATA 'CrossShell'
+        $agentDir = Join-Path $env:USERPROFILE '.crossshell'
         Get-Process -Name 'crossshell-host' -ErrorAction SilentlyContinue | Stop-Process -Force
         Remove-Item -Force -ErrorAction SilentlyContinue "$agentDir\host.json"
         $env:CROSSSHELL_SHOT = "$tmp\app.png"
@@ -153,7 +159,7 @@ try {
             "picture saved: $(Test-Path $env:CROSSSHELL_SHOT); agent info written: $(Test-Path "$agentDir\host.json")"
             Show-Logs 'app'
             Write-Host '--- files written since the start'
-            foreach ($root in $env:APPDATA, $env:LOCALAPPDATA, $tmp) {
+            foreach ($root in $env:APPDATA, $env:LOCALAPPDATA, $agentDir, $tmp) {
                 Get-ChildItem -Path $root -Recurse -File -Force -ErrorAction SilentlyContinue |
                     Where-Object { $_.LastWriteTime -gt $started } |
                     ForEach-Object { Write-Host ('{0,10} {1}' -f $_.Length, $_.FullName) }
