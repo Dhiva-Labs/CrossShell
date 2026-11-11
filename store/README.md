@@ -79,8 +79,10 @@ under `build\windows\arm64\runner\Release`.
    rejects a package whose values differ.
 3. Build the package as above.
 4. Publish `PRIVACY.md` at a public URL (for example on the project website
-   or as a page in the GitHub repository), after filling in the contact
-   address, and enter that URL as the privacy policy.
+   or as a page in the GitHub repository) and enter that URL as the privacy
+   policy, or paste its text into Partner Center's "Provide privacy policy
+   text" box. Its contact line points to the contact details at
+   dhivalabs.com, as Circuit Lab's policy does.
 5. Create a submission:
    - *Pricing and availability*: free.
    - *Properties*: category Developer tools. The app does not need a

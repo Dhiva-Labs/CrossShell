@@ -128,6 +128,6 @@ address with a new date.
 
 ## Contact
 
-Questions about this policy: <contact email>
+Questions about this policy: use the contact details at https://dhivalabs.com
 
 Source code: https://github.com/Dhiva-Labs/CrossShell
