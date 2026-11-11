@@ -207,7 +207,7 @@ agent behaves as above.
 |---|---|
 | `--runtime-dir DIR` | `host.json`, `host.lock`, `status.json` and `host.log` live in `DIR` (created 0700; `host.json` 0600 on unix) instead of the per-user default, so a per-session agent never collides with an installed one. `--info` honours it. |
 | `--exit-when-idle SECS` | Exit when no authenticated viewer connected within `SECS` of start, or `SECS` after the last one left (a dead SSH link ends the session after the 15 s idle timeout, then this applies). Removes `host.json` and `status.json` on the way out. Failed logins do not count as a viewer. |
-| `--no-notify` | No desktop notification while a viewer is connected (see below). |
+| `--no-notify` | No desktop notification while a viewer is connected (see below). Ignored, with a log line, when the agent runs from an MSIX package (its path contains a `WindowsApps` folder): Store policy forbids hiding that activity. |
 
 **Connect notification.** While a viewer is connected the host shows
 "Your screen is being viewed from <viewer_name>" ("viewed and controlled"

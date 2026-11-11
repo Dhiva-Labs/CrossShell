@@ -1,7 +1,8 @@
 //! Tells the person at the machine that a viewer is connected: a desktop
 //! notification on Linux, a notification-area balloon (shown as a toast) on
 //! Windows. Shown when a session starts, removed when it ends; `--no-notify`
-//! turns it off. A missing notification service is silently ignored.
+//! turns it off, except in a packaged (MSIX) install, which always shows it.
+//! A missing notification service is silently ignored.
 
 use std::sync::mpsc;
 use std::thread::JoinHandle;

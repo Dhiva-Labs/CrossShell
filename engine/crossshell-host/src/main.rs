@@ -31,6 +31,7 @@ OPTIONS:
     --synthetic            serve an animated test pattern, not the desktop
     --no-clipboard         do not sync the clipboard with the viewer
     --no-notify            no desktop notification while a viewer is connected
+                           (ignored by a Microsoft Store / MSIX install)
     --runtime-dir DIR      keep host.json, the instance lock, status.json and
                            host.log in DIR (created 0700) instead of the
                            per-user default
@@ -165,12 +166,18 @@ fn run() -> anyhow::Result<()> {
         dir.display()
     );
 
+    let mut notify = args.notify;
+    if !notify && std::env::current_exe().is_ok_and(|exe| crossshell_host::is_packaged_exe(&exe)) {
+        log::info!("--no-notify ignored: this is a packaged (Microsoft Store) install, which always shows the viewing notice");
+        notify = true;
+    }
+
     let opts = Arc::new(SessionOptions {
         token,
         backend: if args.synthetic { BackendKind::Synthetic } else { BackendKind::Native },
         runtime_dir: Some(dir.clone()),
         clipboard: args.clipboard,
-        notify: args.notify,
+        notify,
     });
     let slot = Arc::new(SessionSlot::default());
     if let Some(limit) = args.exit_when_idle {
