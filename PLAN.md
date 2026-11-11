@@ -155,12 +155,29 @@ Fixes:
 - Linux (pkexec `scripts/linux-setup.sh`): install `openssh-server` via
   apt/dnf/pacman/zypper, `systemctl enable --now ssh.socket|ssh|sshd`, if
   `ufw` is active allow 22/tcp + 47820 udp/tcp from local subnet.
-- Windows (UAC `scripts/windows-setup.ps1`): `Add-WindowsCapability
-  OpenSSH.Server~~~~0.0.1.0`, `sshd` Automatic + started; firewall rules
-  `CrossShell SSH` (TCP 22), `CrossShell Discovery` (UDP 47820), `CrossShell
-  Pairing` (TCP 47820), all `-Profile Any -RemoteAddress LocalSubnet`;
-  optional `DefaultShell` = PowerShell (only if unset); `-AuthorizeKey` /
-  `-RevokeKey` for administrators_authorized_keys.
+- Windows (one UAC prompt, script generated in `setup_scripts.dart`):
+  `Add-WindowsCapability OpenSSH.Server~~~~0.0.1.0`, `sshd` Automatic +
+  started; firewall rules `CrossShell SSH` (TCP 22), `CrossShell Discovery`
+  (UDP 47820), `CrossShell Pairing` (TCP 47820), all `-Profile
+  Domain,Private -RemoteAddress LocalSubnet` (on a Public network the user
+  switches the network to Private; the checks page detects Public networks
+  with `Get-NetConnectionProfile` and says so); optional `DefaultShell` =
+  PowerShell (only if unset, and then recorded as `SetOpenSshDefaultShell`
+  under `HKLM\SOFTWARE\CrossShell`); authorize / revoke keys in
+  administrators_authorized_keys. The script's result JSON goes to a temp
+  dir under `%USERPROFILE%\.crossshell\tmp` (not `%TEMP%`, which an MSIX
+  package sees privately), removed afterwards.
+
+**Remove CrossShell changes from this PC** (This machine page, before
+uninstalling): unpairs every peer (the same steps as Unpair), turns screen
+sharing off and stops the agent, then in one UAC prompt (the same script
+mechanism, removal steps) stops and deletes the `CrossShellHost` scheduled
+task, deletes the three firewall rules, drops every `crossshell:<id>` line
+from administrators_authorized_keys and unsets `DefaultShell` only if
+CrossShell recorded setting it and it is unchanged; finally removes the
+`Include crossshell/config` line from `~/.ssh/config`, `~/.ssh/crossshell`
+and the state dirs. It never stops or uninstalls sshd or the OpenSSH Server
+feature. On Linux the ufw/firewalld openings are left (the dialog says so).
 
 ## Terminal, files, forwards
 

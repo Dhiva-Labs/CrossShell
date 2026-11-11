@@ -272,9 +272,68 @@ class _SetupPageState extends State<SetupPage> {
             title: const Text('Use your paired machines from any terminal'),
             subtitle: Text('ssh <name>   ·   managed in ${app.layout.config}'),
           ),
+          _section(context, 'Remove CrossShell'),
+          ListTile(
+            title: const Text('Remove CrossShell changes from this PC'),
+            subtitle: const Text(
+              'Unpairs every machine and undoes what CrossShell set up here. '
+              'Do this before uninstalling CrossShell.',
+            ),
+            trailing: OutlinedButton.icon(
+              onPressed: _busy ? null : _removeChanges,
+              icon: const Icon(Icons.delete_sweep_outlined),
+              label: const Text('Remove…'),
+            ),
+          ),
         ],
       ),
     );
+  }
+
+  Future<void> _removeChanges() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove CrossShell changes from this PC?'),
+        content: SingleChildScrollView(
+          child: Text(removalDescription(windows: Platform.isWindows)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final notes = await app.removeCrossShellChanges();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              [
+                'CrossShell\'s changes were removed from this PC.',
+                ...notes,
+              ].join(' '),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      _error = '$e';
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Widget _section(BuildContext context, String title) => Padding(

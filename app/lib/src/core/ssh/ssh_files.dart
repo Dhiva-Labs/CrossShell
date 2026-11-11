@@ -173,6 +173,18 @@ String removeAuthorizedKey(String contents, String peerId) {
 bool _hasMarker(String line, String marker) =>
     line.trimRight().endsWith(' $marker');
 
+final _anyMarkerRe = RegExp(r' crossshell:[A-Za-z0-9-]{8,64}$');
+
+/// Drop every key CrossShell added (comment `crossshell:<peer-id>`), keeping
+/// all other lines.
+String removeAllCrossShellKeys(String contents) {
+  final lines = contents
+      .split('\n')
+      .where((l) => l.trim().isNotEmpty && !_anyMarkerRe.hasMatch(l.trimRight()))
+      .toList();
+  return lines.isEmpty ? '' : '${lines.join('\n')}\n';
+}
+
 // ------------------------------------------------------------------ file IO
 
 class SshFiles {
@@ -254,5 +266,30 @@ class SshFiles {
         removeAuthorizedKey(c, peerId),
       );
     }
+  }
+
+  /// Undo everything CrossShell did to the user's SSH files: every
+  /// `crossshell:<id>` key in ~/.ssh/authorized_keys, the Include line in
+  /// ~/.ssh/config, and the whole ~/.ssh/crossshell folder (our config,
+  /// pinned host keys and this machine's CrossShell key). Other lines and
+  /// files are left as they are.
+  Future<void> removeAllCrossShellChanges() async {
+    final keys = await _read(layout.authorizedKeys);
+    if (keys.isNotEmpty) {
+      final kept = removeAllCrossShellKeys(keys);
+      if (kept != keys) await writePrivateFile(layout.authorizedKeys, kept);
+    }
+    final user = await _read(layout.userConfig);
+    if (user.isNotEmpty) {
+      final kept = removeInclude(user);
+      if (kept.trim().isEmpty) {
+        // Only our Include was in it.
+        await File(layout.userConfig).delete();
+      } else if (kept != user) {
+        await writePrivateFile(layout.userConfig, kept);
+      }
+    }
+    final dir = Directory(layout.dir);
+    if (await dir.exists()) await dir.delete(recursive: true);
   }
 }

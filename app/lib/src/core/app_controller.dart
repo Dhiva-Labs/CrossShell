@@ -60,6 +60,33 @@ const snapFirewallHelp =
     '  sudo ufw allow from <your LAN> to any port 47820\n'
     'Most desktops have no firewall enabled and need nothing.';
 
+/// What "Remove CrossShell changes from this PC" does, for its
+/// confirmation dialog. Must match [AppController.removeCrossShellChanges].
+String removalDescription({required bool windows}) => [
+  'This will:',
+  '• unpair every paired machine (and remove this PC\'s key from each one it can reach)',
+  '• turn screen sharing off and stop the screen-sharing agent',
+  if (windows) ...[
+    '• delete the CrossShellHost scheduled task',
+    '• delete the firewall rules CrossShell SSH, CrossShell Discovery and CrossShell Pairing',
+    '• remove paired machines\' keys from administrators_authorized_keys',
+    '• set OpenSSH\'s default shell back, if CrossShell set it to PowerShell',
+  ],
+  '• remove the "Include crossshell/config" line from ~/.ssh/config and delete ~/.ssh/crossshell '
+      '(CrossShell\'s SSH key, host keys and config)',
+  '• delete CrossShell\'s agent files (${windows ? r'%USERPROFILE%\.crossshell' : '~/.local/state/crossshell'})',
+  '',
+  windows
+      ? 'It does not stop or uninstall the SSH server (the OpenSSH Server feature): you may use it for '
+            'other things. To remove it, use Settings > System > Optional features. '
+            'Windows will ask for administrator permission once.'
+      : 'It does not stop or uninstall the SSH server (openssh-server): you may use it for other things. '
+            'Firewall openings CrossShell added with ufw or firewalld are not removed; remove them with '
+            'your firewall tool if you want.',
+  '',
+  'Your settings and this PC\'s CrossShell identity stay until you uninstall CrossShell.',
+].join('\n');
+
 /// Result of the local health check.
 class LocalHealth {
   LocalHealth({
@@ -411,19 +438,20 @@ class AppController extends ChangeNotifier {
 
   /// Forget [peer] here and, if reachable, remove our key over there too.
   Future<void> unpair(Peer peer) async {
-    if (peer.canConnect) {
-      try {
-        await runOnPeer(
-          layout,
-          peer,
-          revokeSelfCommand(windows: peer.isWindows, myId: identity.id),
-          timeout: const Duration(seconds: 15),
-        );
-      } catch (_) {
-        // Offline: our key stays there until they unpair us.
-      }
-    }
-    if (await LocalSystem.isWindowsAdmin()) {
+    await _unpair(peer, revokeAdminKey: await LocalSystem.isWindowsAdmin());
+  }
+
+  /// Unpair [peer]. [revokeAdminKey]: also drop its key from
+  /// administrators_authorized_keys (one UAC prompt); off when the caller
+  /// does that itself in a single elevated script for several peers.
+  /// Returns false when the peer could not be reached to remove our key.
+  Future<bool> _unpair(
+    Peer peer, {
+    required bool revokeAdminKey,
+    bool? alreadyReached,
+  }) async {
+    final reached = alreadyReached ?? await _revokeOnPeer(peer);
+    if (revokeAdminKey) {
       try {
         await runWindowsElevated([RevokeAdminKey(peer.id)]);
       } on SetupError {
@@ -436,6 +464,117 @@ class AppController extends ChangeNotifier {
     peers = peers.where((p) => p.id != peer.id).toList();
     await _store.save(peers);
     notifyListeners();
+    return reached;
+  }
+
+  /// Remove this machine's key from [peer] over SSH. False if it couldn't
+  /// be reached (our key then stays there until they unpair us).
+  Future<bool> _revokeOnPeer(Peer peer) async {
+    if (!peer.canConnect) return true;
+    try {
+      await runOnPeer(
+        layout,
+        peer,
+        revokeSelfCommand(windows: peer.isWindows, myId: identity.id),
+        timeout: const Duration(seconds: 15),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// "Remove CrossShell changes from this PC", before uninstalling:
+  /// unpair every peer, stop and withdraw the screen-share agent, then (one
+  /// admin prompt on Windows) delete the CrossShellHost scheduled task, the
+  /// CrossShell firewall rules and every `crossshell:` admin key, and revert
+  /// OpenSSH's DefaultShell if CrossShell set it; finally remove the
+  /// Include line from ~/.ssh/config, ~/.ssh/crossshell and the state dir.
+  /// Never stops or uninstalls sshd / the OpenSSH Server feature.
+  ///
+  /// Returns notes for the user (e.g. peers that were offline). Throws
+  /// [SetupDeclined] (nothing changed) if the admin prompt is declined, or
+  /// [SetupError] listing what could not be removed.
+  Future<List<String>> removeCrossShellChanges() async {
+    final notes = <String>[];
+    final problems = <String>[];
+    final agentExe = localAgent.agentPath;
+
+    // Elevated part first: if the user declines, nothing has changed yet.
+    if (Platform.isWindows) {
+      try {
+        await runWindowsElevated(windowsRemovalSteps(agentExe: agentExe));
+      } on SetupDeclined {
+        rethrow;
+      } on SetupError catch (e) {
+        problems.add(e.message);
+      }
+    }
+
+    settings.allowScreenSharing = false;
+    try {
+      await writePrivateFile(
+        p.join(appDir, 'settings.json'),
+        jsonEncode(settings.toJson()),
+      );
+    } catch (e) {
+      problems.add('settings: $e');
+    }
+    await localAgent.unpublishPath();
+    await localAgent.stop();
+
+    // Same per-peer steps as Unpair: the SSH calls to the peers in
+    // parallel, then the local files one peer at a time. The admin key file
+    // was already swept by the elevated script above.
+    final all = [...peers];
+    final reached = await Future.wait(all.map(_revokeOnPeer));
+    final offline = <String>[];
+    for (var i = 0; i < all.length; i++) {
+      if (!reached[i]) offline.add(all[i].name);
+      try {
+        await _unpair(all[i], revokeAdminKey: false, alreadyReached: reached[i]);
+      } catch (e) {
+        problems.add('${all[i].name}: $e');
+      }
+    }
+    if (offline.isNotEmpty) {
+      notes.add(
+        'Could not reach ${offline.join(', ')} to remove this PC\'s key there. '
+        'Unpair this PC on ${offline.length == 1 ? 'it' : 'them'} too.',
+      );
+    }
+
+    try {
+      await files.removeAllCrossShellChanges();
+    } catch (e) {
+      problems.add('SSH files: $e');
+    }
+
+    // Agent metadata and log. The agent was just stopped; give Windows a
+    // moment to release its log file.
+    final stateDirs = Platform.isWindows
+        ? LocalSystem.windowsStateDirs
+        : {LocalSystem.stateDir, LocalSystem.agentRuntimeDir}.toList();
+    for (final d in stateDirs) {
+      final dir = Directory(d);
+      for (var attempt = 0; attempt < 5 && await dir.exists(); attempt++) {
+        try {
+          await dir.delete(recursive: true);
+        } on FileSystemException {
+          await Future<void>.delayed(const Duration(milliseconds: 400));
+        }
+      }
+      if (await dir.exists()) problems.add('could not delete $d');
+    }
+
+    notifyListeners();
+    unawaited(refreshHealth());
+    if (problems.isNotEmpty) {
+      throw SetupError(
+        'Some CrossShell changes could not be removed: ${problems.join('; ')}',
+      );
+    }
+    return notes;
   }
 
   // ------------------------------------------------------- using a peer

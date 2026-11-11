@@ -21,6 +21,11 @@ class SetupError implements Exception {
   String toString() => message;
 }
 
+/// The user declined the UAC / polkit prompt: nothing was changed.
+class SetupDeclined extends SetupError {
+  SetupDeclined() : super('Administrator permission was declined');
+}
+
 /// Quote for a PowerShell single-quoted string literal.
 String psQuote(String s) => "'${s.replaceAll("'", "''")}'";
 
@@ -50,7 +55,48 @@ class RevokeAdminKey extends WindowsStep {
   final String peerId;
 }
 
+// ---- Removal mode ("Remove CrossShell changes from this PC").
+// None of these stop or uninstall sshd or the OpenSSH Server feature: the
+// user may rely on them for other things.
+
+/// Stop the CrossShellHost scheduled task and the agent at [agentExe] (it may
+/// run elevated, out of the unelevated app's reach), then delete the task.
+class RemoveAgentTask extends WindowsStep {
+  RemoveAgentTask(this.agentExe);
+  final String? agentExe;
+}
+
+/// Delete the `CrossShell SSH`, `CrossShell Discovery` and `CrossShell
+/// Pairing` firewall rules.
+class RemoveFirewallRules extends WindowsStep {}
+
+/// Drop every `crossshell:<id>` line from administrators_authorized_keys.
+class RevokeAllAdminKeys extends WindowsStep {}
+
+/// Unset OpenSSH's DefaultShell, but only if CrossShell set it (recorded by
+/// [PowerShellDefaultShell]) and nobody changed it since.
+class RevertDefaultShell extends WindowsStep {}
+
+/// The elevated part of removing CrossShell's changes, one UAC prompt.
+List<WindowsStep> windowsRemovalSteps({String? agentExe}) => [
+  RemoveAgentTask(agentExe),
+  RemoveFirewallRules(),
+  RevokeAllAdminKeys(),
+  RevertDefaultShell(),
+];
+
 final _peerIdRe = RegExp(r'^[A-Za-z0-9-]{8,64}$');
+
+/// Firewall rule names (`-Name`) CrossShell creates.
+const crossShellFirewallRules = [
+  'CrossShell-SSH',
+  'CrossShell-Pairing',
+  'CrossShell-Discovery',
+];
+
+/// Where the elevated setup records that it set OpenSSH's DefaultShell
+/// (HKLM, so it is the same for every user and the elevated script).
+const _psMarkerKey = r'HKLM:\SOFTWARE\CrossShell';
 
 const _psPrelude = r'''
 $ErrorActionPreference = 'Stop'
@@ -112,6 +158,10 @@ Step 'default-shell' {
   if (-not $cur) {
     $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     New-ItemProperty -Path $k -Name DefaultShell -Value $ps -PropertyType String -Force | Out-Null
+    # Remember that CrossShell set it, so removal undoes only its own change.
+    $m = 'HKLM:\SOFTWARE\CrossShell'
+    if (-not (Test-Path $m)) { New-Item -Path $m -Force | Out-Null }
+    New-ItemProperty -Path $m -Name SetOpenSshDefaultShell -Value $ps -PropertyType String -Force | Out-Null
   }
 }
 ''';
@@ -131,6 +181,58 @@ Step 'authorize-key' {
       return '''
 Step 'revoke-key' {
   if (Test-Path \$adminKeys) { Write-AdminKeys @(Read-AdminKeys ${psQuote(authorizedKeyMarker(peerId))}) }
+}
+''';
+    case RemoveAgentTask(:final agentExe):
+      if (agentExe != null &&
+          (!agentExe.toLowerCase().endsWith(r'\crossshell-host.exe') ||
+              agentExe.contains(RegExp(r'[\r\n]')))) {
+        throw SetupError('bad agent path');
+      }
+      final stopAgent = agentExe == null
+          ? ''
+          : '''
+  \$exe = ${psQuote(agentExe)}
+  Get-Process -Name 'crossshell-host' -ErrorAction SilentlyContinue |
+    Where-Object { \$_.Path -and (\$_.Path -ieq \$exe) } | Stop-Process -Force -ErrorAction SilentlyContinue
+''';
+      return '''
+Step 'remove-agent-task' {
+  if (Get-ScheduledTask -TaskName 'CrossShellHost' -ErrorAction SilentlyContinue) {
+    Stop-ScheduledTask -TaskName 'CrossShellHost' -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName 'CrossShellHost' -Confirm:\$false
+  }
+$stopAgent}
+''';
+    case RemoveFirewallRules():
+      return '''
+Step 'remove-firewall' {
+  foreach (\$n in @(${crossShellFirewallRules.map(psQuote).join(', ')})) {
+    Remove-NetFirewallRule -Name \$n -ErrorAction SilentlyContinue
+  }
+}
+''';
+    case RevokeAllAdminKeys():
+      return r'''
+Step 'revoke-all-keys' {
+  if (Test-Path $adminKeys) {
+    $keep = @(Get-Content -LiteralPath $adminKeys | Where-Object { $_ -and $_.TrimEnd() -notmatch ' crossshell:[A-Za-z0-9-]{8,64}$' })
+    Write-AdminKeys $keep
+  }
+}
+''';
+    case RevertDefaultShell():
+      return '''
+Step 'revert-default-shell' {
+  \$m = '$_psMarkerKey'
+  \$set = (Get-ItemProperty -Path \$m -Name SetOpenSshDefaultShell -ErrorAction SilentlyContinue).SetOpenSshDefaultShell
+  if (\$set) {
+    \$k = 'HKLM:\\SOFTWARE\\OpenSSH'
+    \$cur = (Get-ItemProperty -Path \$k -Name DefaultShell -ErrorAction SilentlyContinue).DefaultShell
+    # Changed by someone else since: leave it.
+    if (\$cur -eq \$set) { Remove-ItemProperty -Path \$k -Name DefaultShell }
+  }
+  if (Test-Path \$m) { Remove-Item -Path \$m -Recurse -Force }
 }
 ''';
   }
@@ -199,7 +301,7 @@ Future<List<StepResult>> runWindowsElevated(List<WindowsStep> steps) async {
     if (!await f.exists()) {
       final err = (r.stderr as String).trim();
       if (r.exitCode == 1223 || err.toLowerCase().contains('cancel')) {
-        throw SetupError('Administrator permission was declined');
+        throw SetupDeclined();
       }
       throw SetupError(
         'elevated setup did not run: ${err.isEmpty ? 'exit ${r.exitCode}' : err}',
@@ -301,7 +403,7 @@ Future<void> runLinuxPrivileged(
     ...args,
   ]);
   if (r.exitCode == 126 || r.exitCode == 127) {
-    throw SetupError('Administrator permission was declined');
+    throw SetupDeclined();
   }
   if (r.exitCode != 0) {
     final err = '${r.stderr}'.trim();
